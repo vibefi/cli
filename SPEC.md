@@ -85,6 +85,11 @@ This document describes CLI design and behavior (data flow, config, and contract
 - `VfiGovernor` functions: `propose`, `state`, `proposalSnapshot`, `proposalDeadline`, `proposalVotes`, `quorum`, `castVote`, `castVoteWithReason`, `vetoProposal`.
 - `DappRegistry` functions: `publishDapp`, `pauseDappVersion`, `unpauseDappVersion`, `deprecateDappVersion`.
 
+## ABI Management
+
+- ABI files are stored in `cli/src/abis/` and generated from the latest `contracts/out` artifacts.
+- Use `bun run refresh-abis` to regenerate ABI JSONs (requires `forge build` in `contracts/`).
+
 ## Output Format
 
 - Human-readable by default.

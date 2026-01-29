@@ -9,6 +9,15 @@ cd cli
 bun install
 ```
 
+If contracts change, refresh ABI snapshots:
+
+```bash
+cd contracts
+FOUNDRY_PROFILE=ci forge build
+cd ../cli
+bun run refresh-abis
+```
+
 On first run, the CLI creates `.vibefi/config.json` in the current working directory.
 Default config is devnet-first but includes mainnet placeholders.
 
