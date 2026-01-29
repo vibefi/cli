@@ -1,0 +1,22 @@
+{
+  "name": "vibefi-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "vibefi": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "lint": "bun run --silent",
+    "typecheck": "bun run tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "viem": "^2.45.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^22.10.2"
+  }
+}
