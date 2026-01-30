@@ -182,6 +182,7 @@ async function main() {
   if (result.code !== 0) throw new Error("proposals:list failed");
 
   logSection("Propose dapp");
+  const proposalDescription = `E2E proposal ${Date.now()}`;
   result = await runCmd(
     "bun",
     [
@@ -201,7 +202,7 @@ async function main() {
       "--description",
       "Test",
       "--proposal-description",
-      "E2E proposal",
+      proposalDescription,
       "--json"
     ],
     { cwd: cliDir, capture: true }
