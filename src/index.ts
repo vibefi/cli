@@ -368,14 +368,14 @@ withCommonOptions(
   const governor = ctx.contracts.vfiGovernor;
   if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
 
-  const logs = await ctx.publicClient.getLogs({
+  const proposalLogs = await ctx.publicClient.getLogs({
     address: governor as Hex,
     event: proposalCreatedEvent,
     fromBlock: BigInt(options.fromBlock),
     toBlock: options.toBlock ? BigInt(options.toBlock) : "latest"
   });
 
-  const target = logs.find((log) => {
+  const target = proposalLogs.find((log) => {
     const args = log.args as ProposalCreatedArgs | undefined;
     return args?.proposalId?.toString() === proposalId;
   });
