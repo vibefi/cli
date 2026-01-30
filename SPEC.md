@@ -90,6 +90,16 @@ This document describes CLI design and behavior (data flow, config, and contract
 - ABI files are stored in `cli/src/abis/` and generated from the latest `contracts/out` artifacts.
 - Use `bun run refresh-abis` to regenerate ABI JSONs (requires `forge build` in `contracts/`).
 
+## Linting & Reproducibility
+
+- `bun run lint` uses `tsc --noEmit` for now.
+- `bun.lockb` is committed for reproducible installs.
+
+## Linting & Reproducibility
+
+- `bun run lint` uses `tsc --noEmit` for now.
+- `bun.lockb` is committed for reproducible installs.
+
 ## Output Format
 
 - Human-readable by default.

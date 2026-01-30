@@ -1,8 +1,9 @@
 import { getAbiItem } from "viem";
 import governorAbi from "./abis/VfiGovernor.json";
 import dappRegistryAbi from "./abis/DappRegistry.json";
+import vfiTokenAbi from "./abis/VfiToken.json";
 
-export { governorAbi, dappRegistryAbi };
+export { governorAbi, dappRegistryAbi, vfiTokenAbi };
 
 export const proposalCreatedEvent = getAbiItem({
   abi: governorAbi,

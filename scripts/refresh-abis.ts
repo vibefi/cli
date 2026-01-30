@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const REQUIRED_ARTIFACTS = ["VfiGovernor", "DappRegistry"]; // extend as needed
+const REQUIRED_ARTIFACTS = ["VfiGovernor", "DappRegistry", "VfiToken"]; // extend as needed
 
 function findRepoRoot(start: string): string {
   let current = start;

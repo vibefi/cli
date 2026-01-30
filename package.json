@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "refresh-abis": "bun run scripts/refresh-abis.ts",
-    "lint": "bun run --silent",
+    "lint": "bun run tsc -p tsconfig.json --noEmit",
     "typecheck": "bun run tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

@@ -41,6 +41,22 @@ if [ ! -f "$DEVNET_JSON" ]; then
   exit 1
 fi
 
+# Ensure RPC is ready
+for _ in {1..80}; do
+  if cast chain-id --rpc-url http://127.0.0.1:8545 >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.25
+done
+
+# Ensure RPC is ready
+for _ in {1..80}; do
+  if cast chain-id --rpc-url http://127.0.0.1:8545 >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.25
+done
+
 cd "$CLI_DIR"
 
 bun install >/dev/null 2>&1 || bun install

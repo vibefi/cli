@@ -73,12 +73,12 @@ export type DevnetJson = {
   voter1: string;
   voter2: string;
   securityCouncil1: string;
-  securityCouncil2: string;
+  securityCouncil2?: string;
   developerPrivateKey: string;
   voter1PrivateKey: string;
   voter2PrivateKey: string;
   securityCouncil1PrivateKey: string;
-  securityCouncil2PrivateKey: string;
+  securityCouncil2PrivateKey?: string;
 };
 
 export function loadDevnetJson(devnetPath?: string): DevnetJson | undefined {

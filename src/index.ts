@@ -1,6 +1,15 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { encodeFunctionData, formatUnits, isHex, keccak256, toBytes, type Hex } from "viem";
+import {
+  bytesToHex,
+  encodeFunctionData,
+  formatUnits,
+  getAddress,
+  isHex,
+  keccak256,
+  toBytes,
+  type Hex
+} from "viem";
 import {
   dappDeprecatedEvent,
   dappMetadataEvent,
@@ -10,7 +19,8 @@ import {
   dappUnpausedEvent,
   dappUpgradedEvent,
   governorAbi,
-  proposalCreatedEvent
+  proposalCreatedEvent,
+  vfiTokenAbi
 } from "./abi";
 import {
   ensureConfig,
@@ -84,12 +94,30 @@ function getWalletContext(
 function roleHint(address: string | undefined, devnet: ReturnType<typeof loadDevnetJson>) {
   if (!address || !devnet) return undefined;
   const lower = address.toLowerCase();
-  if (lower === devnet.developer.toLowerCase()) return "developer";
-  if (lower === devnet.voter1.toLowerCase()) return "voter1";
-  if (lower === devnet.voter2.toLowerCase()) return "voter2";
-  if (lower === devnet.securityCouncil1.toLowerCase()) return "securityCouncil1";
-  if (lower === devnet.securityCouncil2.toLowerCase()) return "securityCouncil2";
+  if (lower === normalizeAddress(devnet.developer)) return "developer";
+  if (lower === normalizeAddress(devnet.voter1)) return "voter1";
+  if (lower === normalizeAddress(devnet.voter2)) return "voter2";
+  if (lower === normalizeAddress(devnet.securityCouncil1)) return "securityCouncil1";
+  if (devnet.securityCouncil2 && lower === normalizeAddress(devnet.securityCouncil2)) {
+    return "securityCouncil2";
+  }
   return undefined;
+}
+
+function normalizeAddress(address: string): string {
+  try {
+    return getAddress(address);
+  } catch {
+    return address.toLowerCase();
+  }
+}
+
+function normalizeAddress(address: string): string {
+  try {
+    return getAddress(address);
+  } catch {
+    return address.toLowerCase();
+  }
 }
 
 const proposalStateNames = [
@@ -102,6 +130,63 @@ const proposalStateNames = [
   "Expired",
   "Executed"
 ] as const;
+
+const MAX_ROOT_CID_BYTES = 4096;
+
+type ProposalCreatedArgs = {
+  proposalId: bigint;
+  proposer: Hex;
+  targets: Hex[];
+  values: bigint[];
+  calldatas: Hex[];
+  startBlock: bigint;
+  endBlock: bigint;
+  description: string;
+};
+
+type DappLogArgs = {
+  dappId: bigint;
+  versionId?: bigint;
+  fromVersionId?: bigint;
+  toVersionId?: bigint;
+  rootCid?: Hex;
+  proposer?: Hex;
+  name?: string;
+  version?: string;
+  description?: string;
+  pausedBy?: Hex;
+  unpausedBy?: Hex;
+  deprecatedBy?: Hex;
+  reason?: string;
+};
+
+function requireArgs<T>(log: { args?: unknown }, label: string): T {
+  if (!log.args) {
+    throw new Error(`Missing log args for ${label}`);
+  }
+  return log.args as T;
+}
+
+function encodeRootCid(input: string): Hex {
+  if (!input) {
+    throw new Error("rootCid cannot be empty");
+  }
+  if (isHex(input)) {
+    const bytes = toBytes(input as Hex);
+    if (bytes.length === 0) {
+      throw new Error("rootCid hex must not be empty");
+    }
+    if (bytes.length > MAX_ROOT_CID_BYTES) {
+      throw new Error(`rootCid exceeds ${MAX_ROOT_CID_BYTES} bytes`);
+    }
+    return input as Hex;
+  }
+  const bytes = toBytes(input);
+  if (bytes.length > MAX_ROOT_CID_BYTES) {
+    throw new Error(`rootCid exceeds ${MAX_ROOT_CID_BYTES} bytes`);
+  }
+  return bytesToHex(bytes);
+}
 
 program.name("vibefi").description("VibeFi CLI").version("0.1.0");
 
@@ -170,8 +255,8 @@ withCommonOptions(
 
   const proposals = await Promise.all(
     logs.map(async (log) => {
-      const args = log.args as any;
-      const proposalId = args.proposalId as bigint;
+      const args = requireArgs<ProposalCreatedArgs>(log, "ProposalCreated");
+      const proposalId = args.proposalId;
       const state = await ctx.publicClient.readContract({
         address: governor as Hex,
         abi: governorAbi,
@@ -180,10 +265,10 @@ withCommonOptions(
       });
       return {
         proposalId: proposalId.toString(),
-        proposer: args.proposer as string,
-        description: args.description as string,
-        startBlock: (args.startBlock as bigint).toString(),
-        endBlock: (args.endBlock as bigint).toString(),
+        proposer: getAddress(args.proposer),
+        description: args.description,
+        startBlock: args.startBlock.toString(),
+        endBlock: args.endBlock.toString(),
         state: proposalStateNames[Number(state)] ?? String(state)
       };
     })
@@ -224,10 +309,13 @@ withCommonOptions(
     toBlock: options.toBlock ? BigInt(options.toBlock) : "latest"
   });
 
-  const target = logs.find((log) => (log.args as any).proposalId?.toString() === proposalId);
+  const target = logs.find((log) => {
+    const args = log.args as ProposalCreatedArgs | undefined;
+    return args?.proposalId?.toString() === proposalId;
+  });
   if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
 
-  const args = target.args as any;
+  const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
   const state = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
@@ -251,13 +339,13 @@ withCommonOptions(
 
   const output = {
     proposalId,
-    proposer: args.proposer as string,
-    description: args.description as string,
-    targets: args.targets as string[],
-    values: (args.values as bigint[]).map((v) => v.toString()),
-    calldatas: args.calldatas as string[],
-    startBlock: (args.startBlock as bigint).toString(),
-    endBlock: (args.endBlock as bigint).toString(),
+    proposer: getAddress(args.proposer),
+    description: args.description,
+    targets: args.targets.map((target) => getAddress(target)),
+    values: args.values.map((v) => v.toString()),
+    calldatas: args.calldatas,
+    startBlock: args.startBlock.toString(),
+    endBlock: args.endBlock.toString(),
     snapshot: snapshot.toString(),
     deadline: deadline.toString(),
     state: proposalStateNames[Number(state)] ?? String(state)
@@ -298,8 +386,7 @@ withCommonOptions(
 
   const wallet = getWalletContext(ctx, options);
 
-  const rootCidInput = options.rootCid as string;
-  const rootCid = isHex(rootCidInput) ? (rootCidInput as Hex) : ("0x" + Buffer.from(rootCidInput).toString("hex")) as Hex;
+  const rootCid = encodeRootCid(options.rootCid as string);
 
   const calldata = encodeFunctionData({
     abi: dappRegistryAbi,
@@ -396,6 +483,20 @@ withCommonOptions(
     args: [snapshot]
   });
 
+  let decimals = 18;
+  if (ctx.contracts.vfiToken) {
+    try {
+      const tokenDecimals = await ctx.publicClient.readContract({
+        address: ctx.contracts.vfiToken as Hex,
+        abi: vfiTokenAbi,
+        functionName: "decimals"
+      });
+      decimals = Number(tokenDecimals);
+    } catch {
+      decimals = 18;
+    }
+  }
+
   const output = {
     proposalId,
     snapshot: snapshot.toString(),
@@ -412,10 +513,10 @@ withCommonOptions(
 
   console.log(`Proposal #${proposalId}`);
   console.log(`Snapshot: ${output.snapshot}`);
-  console.log(`Quorum: ${formatUnits(quorum, 18)} VFI`);
-  console.log(`Against: ${formatUnits(votes[0], 18)} VFI`);
-  console.log(`For: ${formatUnits(votes[1], 18)} VFI`);
-  console.log(`Abstain: ${formatUnits(votes[2], 18)} VFI`);
+  console.log(`Quorum: ${formatUnits(quorum, decimals)} VFI`);
+  console.log(`Against: ${formatUnits(votes[0], decimals)} VFI`);
+  console.log(`For: ${formatUnits(votes[1], decimals)} VFI`);
+  console.log(`Abstain: ${formatUnits(votes[2], decimals)} VFI`);
 });
 
 withCommonOptions(
@@ -437,10 +538,13 @@ withCommonOptions(
     toBlock: options.toBlock ? BigInt(options.toBlock) : "latest"
   });
 
-  const target = logs.find((log) => (log.args as any).proposalId?.toString() === proposalId);
+  const target = logs.find((log) => {
+    const args = log.args as ProposalCreatedArgs | undefined;
+    return args?.proposalId?.toString() === proposalId;
+  });
   if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
 
-  const args = target.args as any;
+  const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
   const descriptionHash = keccak256(toBytes(args.description as string));
 
   const wallet = getWalletContext(ctx, options);
@@ -448,7 +552,7 @@ withCommonOptions(
     address: governor as Hex,
     abi: governorAbi,
     functionName: "vetoProposal",
-    args: [args.targets as Hex[], (args.values as bigint[]), args.calldatas as Hex[], descriptionHash]
+    args: [args.targets, args.values, args.calldatas, descriptionHash]
   });
 
   const output = { txHash: hash };
@@ -551,34 +655,34 @@ withCommonOptions(
   };
 
   for (const log of allLogs) {
-    const args = log.args as any;
+    const args = requireArgs<DappLogArgs>(log, log.eventName ?? "DappEvent");
     if (log.eventName === "DappPublished") {
-      const dappId = args.dappId as bigint;
-      const versionId = args.versionId as bigint;
+      const dappId = args.dappId;
+      const versionId = args.versionId ?? 0n;
       const { dapp, version } = getVersion(dappId, versionId);
       version.rootCid = args.rootCid as string;
       version.status = "Published";
       dapp.latestVersionId = versionId;
     } else if (log.eventName === "DappUpgraded") {
-      const dappId = args.dappId as bigint;
-      const versionId = args.toVersionId as bigint;
+      const dappId = args.dappId;
+      const versionId = args.toVersionId ?? 0n;
       const { dapp, version } = getVersion(dappId, versionId);
       version.rootCid = args.rootCid as string;
       version.status = "Published";
       dapp.latestVersionId = versionId;
     } else if (log.eventName === "DappMetadata") {
-      const { version } = getVersion(args.dappId as bigint, args.versionId as bigint);
-      version.name = args.name as string;
-      version.version = args.version as string;
-      version.description = args.description as string;
+      const { version } = getVersion(args.dappId, args.versionId ?? 0n);
+      version.name = args.name;
+      version.version = args.version;
+      version.description = args.description;
     } else if (log.eventName === "DappPaused") {
-      const { version } = getVersion(args.dappId as bigint, args.versionId as bigint);
+      const { version } = getVersion(args.dappId, args.versionId ?? 0n);
       version.status = "Paused";
     } else if (log.eventName === "DappUnpaused") {
-      const { version } = getVersion(args.dappId as bigint, args.versionId as bigint);
+      const { version } = getVersion(args.dappId, args.versionId ?? 0n);
       version.status = "Published";
     } else if (log.eventName === "DappDeprecated") {
-      const { version } = getVersion(args.dappId as bigint, args.versionId as bigint);
+      const { version } = getVersion(args.dappId, args.versionId ?? 0n);
       version.status = "Deprecated";
     }
   }
