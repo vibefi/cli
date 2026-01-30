@@ -60,3 +60,11 @@ Common options:
 ```bash
 ./scripts/smoke-test.sh
 ```
+
+## E2E test
+
+Runs a full devnet + CLI flow and streams stdout to the console.
+
+```bash
+ANVIL_PORT=8546 bun run test:e2e
+```
