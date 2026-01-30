@@ -10,7 +10,7 @@ This document describes CLI design and behavior (data flow, config, and contract
 
 ## Non-Goals (initial scope)
 
-- IPFS packaging/publishing of dapp bundles.
+- IPFS publishing/pinning of dapp bundles.
 - Full governance lifecycle automation (queue/execute).
 - Rich indexing or caching layer beyond on-demand log reads.
 
@@ -83,6 +83,17 @@ This document describes CLI design and behavior (data flow, config, and contract
     - `DappPublished`, `DappUpgraded`, `DappMetadata`, `DappPaused`, `DappUnpaused`, `DappDeprecated`.
   - Combines logs in block/logIndex order to compute the latest version per `dappId`.
   - Outputs: `dappId`, latest `versionId`, `name`, `version`, `description`, `status`, `rootCid`.
+
+### Package Dapp
+
+- `vibefi package`
+  - Use `--dapp-version` (not `--version`) to avoid conflicting with CLI version flag.
+  - Validates a local React dapp bundle and outputs a deterministic `rootCid`.
+  - Validates top-level structure: `src/`, `assets/`, `abis/`, `addresses.json`, `index.html`, `package.json`.
+  - Enforces dependency allowlist + exact versions.
+  - Rejects forbidden patterns (HTTP, fetch/XHR/WebSocket, dynamic HTTP imports).
+  - Generates a `manifest.json` with file hashes and metadata.
+  - Emits a bundle directory that can be proposed via `dapp:propose`.
 
 ## Contract Interactions
 

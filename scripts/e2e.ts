@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import os from "node:os";
 import {
   createPublicClient,
   createWalletClient,
@@ -97,6 +98,7 @@ async function ensureContractsDeployed() {
 }
 
 async function deployContracts(mnemonic: string) {
+  fs.mkdirSync(path.dirname(devnetJson), { recursive: true });
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     FOUNDRY_PROFILE: "ci",
@@ -189,6 +191,74 @@ async function main() {
   );
   if (result.code !== 0) throw new Error("proposals:list failed");
 
+  logSection("Package dapp");
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vibefi-dapp-"));
+  const dappDir = path.join(tempDir, "demo");
+  fs.mkdirSync(dappDir, { recursive: true });
+  fs.mkdirSync(path.join(dappDir, "src"), { recursive: true });
+  fs.mkdirSync(path.join(dappDir, "assets"), { recursive: true });
+  fs.mkdirSync(path.join(dappDir, "abis"), { recursive: true });
+
+  fs.writeFileSync(
+    path.join(dappDir, "package.json"),
+    JSON.stringify(
+      {
+        name: "demo-dapp",
+        version: "0.1.0",
+        private: true,
+        type: "module",
+        dependencies: {
+          react: "19.2.4",
+          "react-dom": "19.2.4",
+          wagmi: "3.4.1",
+          viem: "2.45.0"
+        },
+        devDependencies: {
+          typescript: "5.9.3",
+          vite: "7.2.4"
+        }
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(
+    path.join(dappDir, "src", "App.tsx"),
+    "export function App() { return <div>hello vibefi</div>; }\\n"
+  );
+  fs.writeFileSync(
+    path.join(dappDir, "assets", "logo.webp"),
+    Buffer.from([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50])
+  );
+  fs.writeFileSync(path.join(dappDir, "abis", "Example.json"), "[]\n");
+  fs.writeFileSync(
+    path.join(dappDir, "addresses.json"),
+    JSON.stringify({ mainnet: { example: "0x0000000000000000000000000000000000000000" } }, null, 2)
+  );
+  fs.writeFileSync(path.join(dappDir, "index.html"), "<!doctype html><html><body></body></html>\\n");
+
+  result = await runCmd(
+    "bun",
+    [
+      "run",
+      "src/index.ts",
+      "package",
+      "--path",
+      dappDir,
+      "--name",
+      "Demo",
+      "--dapp-version",
+      "0.1.0",
+      "--description",
+      "Demo package",
+      "--json"
+    ],
+    { cwd: cliDir, capture: true }
+  );
+  if (result.code !== 0) throw new Error("package failed");
+  const packageJson = JSON.parse(result.stdout || "{}") as { rootCid?: string };
+  if (!packageJson.rootCid) throw new Error("Missing rootCid from package");
+
   logSection("Propose dapp");
   const proposalDescription = `E2E proposal ${Date.now()}`;
   result = await runCmd(
@@ -202,7 +272,7 @@ async function main() {
       "--devnet",
       devnetJson,
       "--root-cid",
-      "hello",
+      packageJson.rootCid,
       "--name",
       "Hello",
       "--dapp-version",

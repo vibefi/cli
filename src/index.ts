@@ -23,6 +23,7 @@ import {
   proposalCreatedEvent,
   vfiTokenAbi
 } from "./abi";
+import { packageDapp } from "./package";
 import {
   ensureConfig,
   getConfigPath,
@@ -263,6 +264,43 @@ function encodeRootCid(input: string): Hex {
 }
 
 program.name("vibefi").description("VibeFi CLI").version("0.1.0");
+
+program
+  .command("package")
+  .description("Package a local dapp into a deterministic bundle")
+  .requiredOption("--name <name>", "Dapp name")
+  .requiredOption("--dapp-version <version>", "Dapp version string")
+  .requiredOption("--description <text>", "Dapp description")
+  .option("--path <dir>", "Path to dapp directory", ".")
+  .option("--out <dir>", "Output directory for bundle")
+  .option("--constraints <path>", "Path to constraints JSON override")
+  .option("--no-emit-manifest", "Do not write manifest.json to output")
+  .option("--json", "Output JSON")
+  .action((options) => {
+    const result = packageDapp({
+      path: options.path,
+      outDir: options.out,
+      name: options.name,
+      version: options.dappVersion,
+      description: options.description,
+      constraintsPath: options.constraints,
+      emitManifest: options.emitManifest
+    });
+
+    const output = {
+      rootCid: result.rootCid,
+      outDir: result.outDir,
+      manifest: result.manifest
+    };
+
+    if (options.json) {
+      console.log(toJson(output));
+      return;
+    }
+
+    console.log(`rootCid: ${result.rootCid}`);
+    console.log(`bundle: ${result.outDir}`);
+  });
 
 withCommonOptions(
   program

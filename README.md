@@ -37,6 +37,7 @@ This writes `contracts/.devnet/devnet.json` which the CLI reads by default.
 bun run src/index.ts status
 bun run src/index.ts proposals:list
 bun run src/index.ts proposals:show 1
+bun run src/index.ts package --path ./my-dapp --name "My Dapp" --dapp-version "0.1.0" --description "Hello"
 bun run src/index.ts dapp:propose --root-cid 0x1234 --name "Test" --dapp-version "0.1.0" --description "Hello"
 
 bun run src/index.ts vote:cast 1 --support for
@@ -71,4 +72,17 @@ streaming stdout to the console.
 
 ```bash
 ANVIL_PORT=8546 bun run test:e2e
+```
+
+## Package workflow
+
+The `package` command validates a local dapp bundle and produces a deterministic
+manifest + bundle directory. The output `rootCid` can be used with `dapp:propose`.
+
+```bash
+bun run src/index.ts package \
+  --path ./my-dapp \
+  --name "My Dapp" \
+  --dapp-version "0.1.0" \
+  --description "My first vapp"
 ```
