@@ -63,6 +63,70 @@ async function waitForRpc(timeoutMs: number) {
   return false;
 }
 
+async function getCode(address: string): Promise<string> {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getCode", params: [address, "latest"] })
+  });
+  const json = (await res.json()) as { result?: string };
+  return json.result ?? "0x";
+}
+
+async function deriveKey(index: number, mnemonic: string): Promise<string> {
+  const { code, stdout } = await runCmd(
+    "cast",
+    ["wallet", "private-key", "--mnemonic", mnemonic, "--mnemonic-index", String(index)],
+    { cwd: repoRoot, capture: true }
+  );
+  if (code !== 0) throw new Error(`Failed to derive key index ${index}`);
+  return stdout.trim();
+}
+
+async function ensureContractsDeployed() {
+  if (!fs.existsSync(devnetJson)) return false;
+  const devnet = JSON.parse(fs.readFileSync(devnetJson, "utf-8")) as DevnetConfig;
+  const code = await getCode(devnet.vfiGovernor);
+  return code !== "0x";
+}
+
+async function deployContracts(mnemonic: string) {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    RPC_URL: rpcUrl,
+    OUTPUT_JSON: devnetJson,
+    DEV_PRIVATE_KEY: await deriveKey(0, mnemonic),
+    VOTER1_PRIVATE_KEY: await deriveKey(1, mnemonic),
+    VOTER2_PRIVATE_KEY: await deriveKey(2, mnemonic),
+    SECURITY_COUNCIL_1_PRIVATE_KEY: await deriveKey(3, mnemonic),
+    SECURITY_COUNCIL_2_PRIVATE_KEY: await deriveKey(4, mnemonic),
+    SECURITY_COUNCIL: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+    INITIAL_SUPPLY: "1000000000000000000000000",
+    VOTING_DELAY: "1",
+    VOTING_PERIOD: "20",
+    QUORUM_FRACTION: "4",
+    TIMELOCK_DELAY: "1",
+    MIN_PROPOSAL_BPS: "100",
+    VOTER_ALLOCATION: "100000000000000000000000",
+    COUNCIL_ALLOCATION: "50000000000000000000000"
+  };
+
+  const result = await runCmd(
+    "forge",
+    [
+      "script",
+      "script/LocalDevnet.s.sol:LocalDevnet",
+      "--rpc-url",
+      rpcUrl,
+      "--private-key",
+      env.DEV_PRIVATE_KEY as string,
+      "--broadcast"
+    ],
+    { cwd: contractsDir, env, capture: true }
+  );
+  if (result.code !== 0) throw new Error("Contract deploy failed");
+}
+
 async function waitForReceipt(txHash: string, timeoutMs: number) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -107,6 +171,13 @@ async function main() {
   if (!rpcReady) {
     devnetProc?.kill("SIGTERM");
     throw new Error(`RPC not ready at ${rpcUrl}`);
+  }
+
+  const mnemonic = process.env.MNEMONIC ?? "test test test test test test test test test test test junk";
+  const hasContracts = await ensureContractsDeployed();
+  if (!hasContracts) {
+    logSection("Deploy contracts");
+    await deployContracts(mnemonic);
   }
 
   logSection("CLI status");
