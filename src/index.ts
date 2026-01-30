@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import {
   bytesToHex,
+  decodeEventLog,
   encodeFunctionData,
   formatUnits,
   getAddress,
@@ -109,6 +110,79 @@ function normalizeAddress(address: string): string {
     return getAddress(address);
   } catch {
     return address.toLowerCase();
+  }
+}
+
+type DecodedLog =
+  | { address: string; contract: string; event: string; args: unknown }
+  | { address: string; event: "Unknown"; data: Hex; topics: Hex[] };
+
+async function fetchTxLogs(
+  ctx: ReturnType<typeof loadContext>,
+  txHash: Hex
+) {
+  const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash: txHash });
+  const logs = receipt.logs ?? [];
+  const decodedLogs: DecodedLog[] = logs.map((log) => {
+    const address = log.address.toLowerCase();
+    const matchGovernor = ctx.contracts.vfiGovernor && address === ctx.contracts.vfiGovernor.toLowerCase();
+    const matchRegistry = ctx.contracts.dappRegistry && address === ctx.contracts.dappRegistry.toLowerCase();
+    const matchToken = ctx.contracts.vfiToken && address === ctx.contracts.vfiToken.toLowerCase();
+
+    if (matchGovernor) {
+      try {
+        const decoded = decodeEventLog({
+          abi: governorAbi,
+          data: log.data,
+          topics: log.topics
+        });
+        return { address: log.address, contract: "VfiGovernor", event: decoded.eventName, args: decoded.args };
+      } catch {
+        // fallthrough
+      }
+    }
+
+    if (matchRegistry) {
+      try {
+        const decoded = decodeEventLog({
+          abi: dappRegistryAbi,
+          data: log.data,
+          topics: log.topics
+        });
+        return { address: log.address, contract: "DappRegistry", event: decoded.eventName, args: decoded.args };
+      } catch {
+        // fallthrough
+      }
+    }
+
+    if (matchToken) {
+      try {
+        const decoded = decodeEventLog({
+          abi: vfiTokenAbi,
+          data: log.data,
+          topics: log.topics
+        });
+        return { address: log.address, contract: "VfiToken", event: decoded.eventName, args: decoded.args };
+      } catch {
+        // fallthrough
+      }
+    }
+
+    return { address: log.address, event: "Unknown", data: log.data, topics: log.topics };
+  });
+
+  return decodedLogs;
+}
+
+function printDecodedLogs(label: string, txHash: Hex, logs: DecodedLog[]) {
+  console.log(`Logs for ${label}: ${txHash}`);
+  for (const entry of logs) {
+    if (entry.event === "Unknown") {
+      console.log(`  ${entry.address} ${entry.event} data=${entry.data}`);
+    } else {
+      console.log(`  ${entry.contract}::${entry.event}`);
+      console.log(`    ${JSON.stringify(entry.args)}`);
+    }
   }
 }
 
@@ -396,12 +470,13 @@ withCommonOptions(
     args: [[dappRegistry as Hex], [0n], [calldata], description]
   });
 
-  const output = { txHash: hash };
+  const logs = await fetchTxLogs(ctx, hash);
   if (options.json) {
-    console.log(JSON.stringify(output, null, 2));
+    console.log(JSON.stringify({ txHash: hash, logs }, null, 2));
     return;
   }
   console.log(`Proposal submitted: ${hash}`);
+  printDecodedLogs("dapp:propose", hash, logs);
 });
 
 withCommonOptions(
@@ -436,12 +511,13 @@ withCommonOptions(
         args
       });
 
-  const output = { txHash: hash };
+  const logs = await fetchTxLogs(ctx, hash);
   if (options.json) {
-    console.log(JSON.stringify(output, null, 2));
+    console.log(JSON.stringify({ txHash: hash, logs }, null, 2));
     return;
   }
   console.log(`Vote submitted: ${hash}`);
+  printDecodedLogs("vote:cast", hash, logs);
 });
 
 withCommonOptions(
@@ -547,12 +623,13 @@ withCommonOptions(
     args: [args.targets, args.values, args.calldatas, descriptionHash]
   });
 
-  const output = { txHash: hash };
+  const logs = await fetchTxLogs(ctx, hash);
   if (options.json) {
-    console.log(JSON.stringify(output, null, 2));
+    console.log(JSON.stringify({ txHash: hash, logs }, null, 2));
     return;
   }
   console.log(`Veto submitted: ${hash}`);
+  printDecodedLogs("council:veto", hash, logs);
 });
 
 function withCouncilCommand(name: string, description: string, fn: "pauseDappVersion" | "unpauseDappVersion" | "deprecateDappVersion") {
@@ -576,12 +653,13 @@ function withCouncilCommand(name: string, description: string, fn: "pauseDappVer
       args: [BigInt(options.dappId), BigInt(options.versionId), options.reason]
     });
 
-    const output = { txHash: hash };
+    const logs = await fetchTxLogs(ctx, hash);
     if (options.json) {
-      console.log(JSON.stringify(output, null, 2));
+      console.log(JSON.stringify({ txHash: hash, logs }, null, 2));
       return;
     }
     console.log(`${name} submitted: ${hash}`);
+    printDecodedLogs(name, hash, logs);
   });
 }
 
