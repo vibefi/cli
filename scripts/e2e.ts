@@ -20,7 +20,11 @@ function logSection(title: string) {
   console.log("\n=== " + title + " ===");
 }
 
-function runCmd(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; capture?: boolean } = {}) {
+function runCmd(
+  command: string,
+  args: string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; capture?: boolean; stream?: boolean } = {}
+) {
   return new Promise<{ code: number; stdout: string }>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
@@ -33,10 +37,14 @@ function runCmd(command: string, args: string[], options: { cwd?: string; env?: 
       child.stdout?.on("data", (data) => {
         const chunk = data.toString();
         stdout += chunk;
-        process.stdout.write(chunk);
+        if (options.stream !== false) {
+          process.stdout.write(chunk);
+        }
       });
       child.stderr?.on("data", (data) => {
-        process.stderr.write(data.toString());
+        if (options.stream !== false) {
+          process.stderr.write(data.toString());
+        }
       });
     }
 
@@ -77,7 +85,7 @@ async function deriveKey(index: number, mnemonic: string): Promise<string> {
   const { code, stdout } = await runCmd(
     "cast",
     ["wallet", "private-key", "--mnemonic", mnemonic, "--mnemonic-index", String(index)],
-    { cwd: repoRoot, capture: true }
+    { cwd: repoRoot, capture: true, stream: false }
   );
   if (code !== 0) throw new Error(`Failed to derive key index ${index}`);
   return stdout.trim();
@@ -93,6 +101,7 @@ async function ensureContractsDeployed() {
 async function deployContracts(mnemonic: string) {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    FOUNDRY_PROFILE: "ci",
     RPC_URL: rpcUrl,
     OUTPUT_JSON: devnetJson,
     DEV_PRIVATE_KEY: await deriveKey(0, mnemonic),
