@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { decodeEventLog, type Hex } from "viem";
+import governorAbi from "../src/abis/VfiGovernor.json";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const contractsDir = path.join(repoRoot, "contracts");
@@ -8,6 +11,10 @@ const cliDir = path.join(repoRoot, "cli");
 const devnetJson = path.join(contractsDir, ".devnet", "devnet.json");
 const anvilPort = process.env.ANVIL_PORT ?? "8546";
 const rpcUrl = `http://127.0.0.1:${anvilPort}`;
+
+type DevnetConfig = {
+  vfiGovernor: string;
+};
 
 function logSection(title: string) {
   console.log("\n=== " + title + " ===");
@@ -54,6 +61,32 @@ async function waitForRpc(timeoutMs: number) {
     await new Promise((r) => setTimeout(r, 250));
   }
   return false;
+}
+
+async function waitForReceipt(txHash: string, timeoutMs: number) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_getTransactionReceipt",
+          params: [txHash]
+        })
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { result?: { logs?: Array<{ address: string; topics: string[]; data: string }> } };
+        if (json.result) return json.result;
+      }
+    } catch {
+      // ignore
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return null;
 }
 
 async function main() {
@@ -118,6 +151,8 @@ async function main() {
     { cwd: cliDir, capture: true }
   );
   if (result.code !== 0) throw new Error("dapp:propose failed");
+  const proposeJson = JSON.parse(result.stdout || "{}") as { txHash?: string };
+  if (!proposeJson.txHash) throw new Error("Missing txHash from dapp:propose");
 
   logSection("Mine block");
   result = await runCmd("cast", ["rpc", "anvil_mine", "1", "--rpc-url", rpcUrl], {
@@ -127,15 +162,18 @@ async function main() {
   if (result.code !== 0) throw new Error("anvil_mine failed");
 
   logSection("Fetch proposal id");
-  result = await runCmd(
-    "bun",
-    ["run", "src/index.ts", "proposals:list", "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
-    { cwd: cliDir, capture: true }
-  );
-  if (result.code !== 0) throw new Error("proposals:list failed");
-  const proposals = JSON.parse(result.stdout || "[]") as Array<{ proposalId: string }>;
-  if (!proposals.length) throw new Error("No proposals found");
-  const proposalId = proposals[proposals.length - 1].proposalId;
+  const devnet = JSON.parse(fs.readFileSync(devnetJson, "utf-8")) as DevnetConfig;
+  const receipt = await waitForReceipt(proposeJson.txHash, 15000);
+  if (!receipt) throw new Error("Transaction receipt not found for proposal");
+  const governorAddress = devnet.vfiGovernor.toLowerCase();
+  const proposalLog = (receipt.logs ?? []).find((log) => log.address.toLowerCase() === governorAddress);
+  if (!proposalLog) throw new Error("ProposalCreated log not found in receipt");
+  const decoded = decodeEventLog({
+    abi: governorAbi,
+    data: proposalLog.data as Hex,
+    topics: proposalLog.topics as Hex[]
+  });
+  const proposalId = (decoded.args as { proposalId: bigint }).proposalId.toString();
   console.log(`Using proposalId=${proposalId}`);
 
   logSection("Cast vote");
