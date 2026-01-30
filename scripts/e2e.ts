@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { decodeEventLog, type Hex } from "viem";
+import { createPublicClient, decodeEventLog, http, type Hex } from "viem";
 import governorAbi from "../src/abis/VfiGovernor.json";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -11,6 +11,7 @@ const cliDir = path.join(repoRoot, "cli");
 const devnetJson = path.join(contractsDir, ".devnet", "devnet.json");
 const anvilPort = process.env.ANVIL_PORT ?? "8546";
 const rpcUrl = `http://127.0.0.1:${anvilPort}`;
+const publicClient = createPublicClient({ transport: http(rpcUrl) });
 
 type DevnetConfig = {
   vfiGovernor: string;
@@ -57,12 +58,8 @@ async function waitForRpc(timeoutMs: number) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] })
-      });
-      if (res.ok) return true;
+      await publicClient.getChainId();
+      return true;
     } catch {
       // ignore
     }
@@ -72,13 +69,7 @@ async function waitForRpc(timeoutMs: number) {
 }
 
 async function getCode(address: string): Promise<string> {
-  const res = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getCode", params: [address, "latest"] })
-  });
-  const json = (await res.json()) as { result?: string };
-  return json.result ?? "0x";
+  return publicClient.getBytecode({ address: address as Hex }).then((code) => code ?? "0x");
 }
 
 async function deriveKey(index: number, mnemonic: string): Promise<string> {
@@ -137,29 +128,14 @@ async function deployContracts(mnemonic: string) {
 }
 
 async function waitForReceipt(txHash: string, timeoutMs: number) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "eth_getTransactionReceipt",
-          params: [txHash]
-        })
-      });
-      if (res.ok) {
-        const json = (await res.json()) as { result?: { logs?: Array<{ address: string; topics: string[]; data: string }> } };
-        if (json.result) return json.result;
-      }
-    } catch {
-      // ignore
-    }
-    await new Promise((r) => setTimeout(r, 250));
+  try {
+    return await publicClient.waitForTransactionReceipt({
+      hash: txHash as Hex,
+      timeout: timeoutMs
+    });
+  } catch {
+    return null;
   }
-  return null;
 }
 
 async function main() {
