@@ -58,15 +58,21 @@ async function waitForRpc(timeoutMs: number) {
 
 async function main() {
   logSection("Start devnet");
-  const devnetProc = spawn("./script/local-devnet.sh", [], {
-    cwd: contractsDir,
-    env: { ...process.env, ANVIL_PORT: anvilPort },
-    stdio: "inherit"
-  });
+  let devnetProc: ReturnType<typeof spawn> | null = null;
+  const rpcAlreadyUp = await waitForRpc(2000);
+  if (!rpcAlreadyUp) {
+    devnetProc = spawn("./script/local-devnet.sh", [], {
+      cwd: contractsDir,
+      env: { ...process.env, ANVIL_PORT: anvilPort },
+      stdio: "inherit"
+    });
+  } else {
+    console.log(`RPC already running at ${rpcUrl}, skipping devnet start.`);
+  }
 
-  const rpcReady = await waitForRpc(15000);
+  const rpcReady = rpcAlreadyUp || (await waitForRpc(15000));
   if (!rpcReady) {
-    devnetProc.kill("SIGTERM");
+    devnetProc?.kill("SIGTERM");
     throw new Error(`RPC not ready at ${rpcUrl}`);
   }
 
@@ -156,7 +162,7 @@ async function main() {
   );
   if (result.code !== 0) throw new Error("dapp:list failed");
 
-  devnetProc.kill("SIGTERM");
+  devnetProc?.kill("SIGTERM");
   console.log("\nE2E test completed successfully.");
 }
 
