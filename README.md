@@ -37,7 +37,7 @@ This writes `contracts/.devnet/devnet.json` which the CLI reads by default.
 bun run src/index.ts status
 bun run src/index.ts proposals:list
 bun run src/index.ts proposals:show 1
-bun run src/index.ts dapp:propose --root-cid 0x1234 --name "Test" --version "0.1.0" --description "Hello"
+bun run src/index.ts dapp:propose --root-cid 0x1234 --name "Test" --dapp-version "0.1.0" --description "Hello"
 
 bun run src/index.ts vote:cast 1 --support for
 bun run src/index.ts vote:status 1

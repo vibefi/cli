@@ -57,6 +57,7 @@ This document describes CLI design and behavior (data flow, config, and contract
   - Builds calldata for `DappRegistry.publishDapp(rootCid, name, version, description)`.
   - Submits it to `VfiGovernor.propose` with a description string.
   - `rootCid` accepts either a hex string (`0x...`) or a raw string (hex-encoded by the CLI).
+  - Use `--dapp-version` (not `--version`) to avoid conflicting with CLI version flag.
 
 ### Voting
 

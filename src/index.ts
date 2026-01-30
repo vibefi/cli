@@ -373,7 +373,7 @@ withCommonOptions(
     .description("Propose publishing a new dapp")
     .requiredOption("--root-cid <value>", "Root CID (hex 0x... or string)")
     .requiredOption("--name <name>", "Dapp name")
-    .requiredOption("--version <version>", "Dapp version string")
+    .requiredOption("--dapp-version <version>", "Dapp version string")
     .requiredOption("--description <text>", "Dapp description")
     .option("--proposal-description <text>", "Proposal description")
 ).action(async (options) => {
@@ -391,11 +391,11 @@ withCommonOptions(
   const calldata = encodeFunctionData({
     abi: dappRegistryAbi,
     functionName: "publishDapp",
-    args: [rootCid, options.name, options.version, options.description]
+    args: [rootCid, options.name, options.dappVersion, options.description]
   });
 
   const description =
-    options.proposalDescription ?? `Publish dapp ${options.name} ${options.version}`;
+    options.proposalDescription ?? `Publish dapp ${options.name} ${options.dappVersion}`;
 
   const hash = await wallet.walletClient.writeContract({
     address: governor as Hex,

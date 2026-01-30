@@ -71,7 +71,7 @@ run_cli proposals:list --json >/dev/null
 run_cli dapp:propose \
   --root-cid "hello-world" \
   --name "Hello Dapp" \
-  --version "0.1.0" \
+  --dapp-version "0.1.0" \
   --description "Test proposal" \
   --proposal-description "Smoke test proposal" \
   --json >/dev/null
