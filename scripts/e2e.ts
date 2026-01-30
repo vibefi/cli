@@ -2,7 +2,14 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { createPublicClient, decodeEventLog, http, type Hex } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  decodeEventLog,
+  http,
+  type Hex
+} from "viem";
+import { mnemonicToAccount } from "viem/accounts";
 import governorAbi from "../src/abis/VfiGovernor.json";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -127,17 +134,6 @@ async function deployContracts(mnemonic: string) {
   if (result.code !== 0) throw new Error("Contract deploy failed");
 }
 
-async function waitForReceipt(txHash: string, timeoutMs: number) {
-  try {
-    return await publicClient.waitForTransactionReceipt({
-      hash: txHash as Hex,
-      timeout: timeoutMs
-    });
-  } catch {
-    return null;
-  }
-}
-
 async function main() {
   logSection("Start devnet");
   let devnetProc: ReturnType<typeof spawn> | null = null;
@@ -159,11 +155,23 @@ async function main() {
   }
 
   const mnemonic = process.env.MNEMONIC ?? "test test test test test test test test test test test junk";
+  const devAccount = mnemonicToAccount(mnemonic);
+  const walletClient = createWalletClient({
+    account: devAccount,
+    transport: http(rpcUrl)
+  });
   const hasContracts = await ensureContractsDeployed();
   if (!hasContracts) {
     logSection("Deploy contracts");
     await deployContracts(mnemonic);
   }
+
+  logSection("Send sanity tx via viem");
+  const sanityTxHash = await walletClient.sendTransaction({
+    to: devAccount.address,
+    value: 0n
+  });
+  await publicClient.waitForTransactionReceipt({ hash: sanityTxHash });
 
   logSection("CLI status");
   let result = await runCmd(
@@ -212,16 +220,14 @@ async function main() {
   if (!proposeJson.txHash) throw new Error("Missing txHash from dapp:propose");
 
   logSection("Mine block");
-  result = await runCmd("cast", ["rpc", "anvil_mine", "1", "--rpc-url", rpcUrl], {
-    cwd: repoRoot,
-    capture: true
-  });
-  if (result.code !== 0) throw new Error("anvil_mine failed");
+  await publicClient.request({ method: "anvil_mine", params: [1] });
 
   logSection("Fetch proposal id");
   const devnet = JSON.parse(fs.readFileSync(devnetJson, "utf-8")) as DevnetConfig;
-  const receipt = await waitForReceipt(proposeJson.txHash, 15000);
-  if (!receipt) throw new Error("Transaction receipt not found for proposal");
+  const receipt = await publicClient.waitForTransactionReceipt({
+    hash: proposeJson.txHash as Hex,
+    timeout: 15000
+  });
   const governorAddress = devnet.vfiGovernor.toLowerCase();
   const proposalLog = (receipt.logs ?? []).find((log) => log.address.toLowerCase() === governorAddress);
   if (!proposalLog) throw new Error("ProposalCreated log not found in receipt");

@@ -113,6 +113,14 @@ function normalizeAddress(address: string): string {
   }
 }
 
+function toJson(value: unknown) {
+  return JSON.stringify(
+    value,
+    (_key, val) => (typeof val === "bigint" ? val.toString() : val),
+    2
+  );
+}
+
 type DecodedLog =
   | { address: string; contract: string; event: string; args: unknown }
   | { address: string; event: "Unknown"; data: Hex; topics: Hex[] };
@@ -181,7 +189,7 @@ function printDecodedLogs(label: string, txHash: Hex, logs: DecodedLog[]) {
       console.log(`  ${entry.address} ${entry.event} data=${entry.data}`);
     } else {
       console.log(`  ${entry.contract}::${entry.event}`);
-      console.log(`    ${JSON.stringify(entry.args)}`);
+      console.log(`    ${toJson(entry.args)}`);
     }
   }
 }
@@ -279,7 +287,7 @@ withCommonOptions(
   };
 
   if (options.json) {
-    console.log(JSON.stringify(output, null, 2));
+    console.log(toJson(output));
     return;
   }
 
@@ -344,7 +352,7 @@ withCommonOptions(
   const sliced = proposals.slice(-limit);
 
   if (options.json) {
-    console.log(JSON.stringify(sliced, null, 2));
+    console.log(toJson(sliced));
     return;
   }
 
@@ -418,7 +426,7 @@ withCommonOptions(
   };
 
   if (options.json) {
-    console.log(JSON.stringify(output, null, 2));
+    console.log(toJson(output));
     return;
   }
 
@@ -472,7 +480,7 @@ withCommonOptions(
 
   const logs = await fetchTxLogs(ctx, hash);
   if (options.json) {
-    console.log(JSON.stringify({ txHash: hash, logs }, null, 2));
+    console.log(toJson({ txHash: hash, logs }));
     return;
   }
   console.log(`Proposal submitted: ${hash}`);
@@ -513,7 +521,7 @@ withCommonOptions(
 
   const logs = await fetchTxLogs(ctx, hash);
   if (options.json) {
-    console.log(JSON.stringify({ txHash: hash, logs }, null, 2));
+    console.log(toJson({ txHash: hash, logs }));
     return;
   }
   console.log(`Vote submitted: ${hash}`);
@@ -575,7 +583,7 @@ withCommonOptions(
   };
 
   if (options.json) {
-    console.log(JSON.stringify(output, null, 2));
+    console.log(toJson(output));
     return;
   }
 
@@ -625,7 +633,7 @@ withCommonOptions(
 
   const logs = await fetchTxLogs(ctx, hash);
   if (options.json) {
-    console.log(JSON.stringify({ txHash: hash, logs }, null, 2));
+    console.log(toJson({ txHash: hash, logs }));
     return;
   }
   console.log(`Veto submitted: ${hash}`);
@@ -655,7 +663,7 @@ function withCouncilCommand(name: string, description: string, fn: "pauseDappVer
 
     const logs = await fetchTxLogs(ctx, hash);
     if (options.json) {
-      console.log(JSON.stringify({ txHash: hash, logs }, null, 2));
+      console.log(toJson({ txHash: hash, logs }));
       return;
     }
     console.log(`${name} submitted: ${hash}`);
@@ -771,7 +779,7 @@ withCommonOptions(
   });
 
   if (options.json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(toJson(result));
     return;
   }
 
