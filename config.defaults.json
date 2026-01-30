@@ -1,0 +1,22 @@
+{
+  "defaultNetwork": "devnet",
+  "networks": {
+    "mainnet": {
+      "rpcUrl": "",
+      "chainId": 1,
+      "contracts": {
+        "vfiToken": "",
+        "vfiGovernor": "",
+        "vfiTimelock": "",
+        "dappRegistry": "",
+        "constraintsRegistry": "",
+        "proposalRequirements": ""
+      }
+    },
+    "devnet": {
+      "rpcUrl": "http://127.0.0.1:8545",
+      "chainId": 31337,
+      "devnetJson": "contracts/.devnet/devnet.json"
+    }
+  }
+}
