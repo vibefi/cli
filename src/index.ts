@@ -94,22 +94,14 @@ function getWalletContext(
 function roleHint(address: string | undefined, devnet: ReturnType<typeof loadDevnetJson>) {
   if (!address || !devnet) return undefined;
   const lower = address.toLowerCase();
-  if (lower === normalizeAddress(devnet.developer)) return "developer";
-  if (lower === normalizeAddress(devnet.voter1)) return "voter1";
-  if (lower === normalizeAddress(devnet.voter2)) return "voter2";
-  if (lower === normalizeAddress(devnet.securityCouncil1)) return "securityCouncil1";
-  if (devnet.securityCouncil2 && lower === normalizeAddress(devnet.securityCouncil2)) {
+  if (lower === normalizeAddress(devnet.developer).toLowerCase()) return "developer";
+  if (lower === normalizeAddress(devnet.voter1).toLowerCase()) return "voter1";
+  if (lower === normalizeAddress(devnet.voter2).toLowerCase()) return "voter2";
+  if (lower === normalizeAddress(devnet.securityCouncil1).toLowerCase()) return "securityCouncil1";
+  if (devnet.securityCouncil2 && lower === normalizeAddress(devnet.securityCouncil2).toLowerCase()) {
     return "securityCouncil2";
   }
   return undefined;
-}
-
-function normalizeAddress(address: string): string {
-  try {
-    return getAddress(address);
-  } catch {
-    return address.toLowerCase();
-  }
 }
 
 function normalizeAddress(address: string): string {

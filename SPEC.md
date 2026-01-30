@@ -96,11 +96,6 @@ This document describes CLI design and behavior (data flow, config, and contract
 - `bun run lint` uses `tsc --noEmit` for now.
 - `bun.lockb` is committed for reproducible installs.
 
-## Linting & Reproducibility
-
-- `bun run lint` uses `tsc --noEmit` for now.
-- `bun.lockb` is committed for reproducible installs.
-
 ## Output Format
 
 - Human-readable by default.
