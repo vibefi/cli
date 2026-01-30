@@ -55,6 +55,9 @@ Common options:
 - `--pk <hex>` to override private key
 - `--json` for machine readable output
 
+State-changing commands (propose/vote/council actions) print decoded logs by default.
+With `--json`, the output includes `txHash` and a `logs` array.
+
 ## Smoke test
 
 ```bash
@@ -63,7 +66,8 @@ Common options:
 
 ## E2E test
 
-Runs a full devnet + CLI flow and streams stdout to the console.
+Runs a full devnet + CLI flow, sending a sanity transaction via viem and
+streaming stdout to the console.
 
 ```bash
 ANVIL_PORT=8546 bun run test:e2e

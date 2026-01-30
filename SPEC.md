@@ -58,11 +58,13 @@ This document describes CLI design and behavior (data flow, config, and contract
   - Submits it to `VfiGovernor.propose` with a description string.
   - `rootCid` accepts either a hex string (`0x...`) or a raw string (hex-encoded by the CLI).
   - Use `--dapp-version` (not `--version`) to avoid conflicting with CLI version flag.
+  - Prints decoded logs from the proposal transaction.
 
 ### Voting
 
 - `vibefi vote:cast <proposalId> --support for|against|abstain [--reason text]`
   - Sends `castVote` or `castVoteWithReason` to `VfiGovernor`.
+  - Prints decoded logs from the vote transaction.
 - `vibefi vote:status <proposalId>`
   - Reads `proposalVotes` and `quorum` at the snapshot block.
 
@@ -72,6 +74,7 @@ This document describes CLI design and behavior (data flow, config, and contract
   - Calls corresponding methods on `DappRegistry`.
 - `vibefi council:veto <proposalId>`
   - Calls `VfiGovernor.vetoProposal` using the original proposal’s target/values/calldata + description hash.
+  - Prints decoded logs from the transaction.
 
 ### Dapp List
 
@@ -100,6 +103,8 @@ This document describes CLI design and behavior (data flow, config, and contract
 
 - Human-readable by default.
 - `--json` emits JSON objects/arrays for easy scripting.
+- For write actions (`dapp:propose`, `vote:cast`, `council:*`), JSON output includes
+  `txHash` and a `logs` array with decoded events (unknown logs are preserved).
 
 ## Error Handling
 
