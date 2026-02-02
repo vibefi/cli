@@ -42,6 +42,8 @@ bun run src/index.ts dapp:propose --root-cid 0x1234 --name "Test" --dapp-version
 
 bun run src/index.ts vote:cast 1 --support for
 bun run src/index.ts vote:status 1
+bun run src/index.ts proposals:queue 1
+bun run src/index.ts proposals:execute 1
 
 bun run src/index.ts council:pause --dapp-id 1 --version-id 1 --reason "incident"
 
@@ -56,7 +58,7 @@ Common options:
 - `--pk <hex>` to override private key
 - `--json` for machine readable output
 
-State-changing commands (propose/vote/council actions) print decoded logs by default.
+State-changing commands (propose/vote/queue/execute/council actions) print decoded logs by default.
 With `--json`, the output includes `txHash` and a `logs` array.
 
 ## Smoke test

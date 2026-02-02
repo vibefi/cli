@@ -11,8 +11,8 @@ This document describes CLI design and behavior (data flow, config, and contract
 ## Non-Goals (initial scope)
 
 - IPFS publishing/pinning of dapp bundles.
-- Full governance lifecycle automation (queue/execute).
 - Rich indexing or caching layer beyond on-demand log reads.
+- Chain control commands (mining/time travel). Use external tools instead.
 
 ## Configuration
 
@@ -50,6 +50,14 @@ This document describes CLI design and behavior (data flow, config, and contract
   - Reads `ProposalCreated` logs from `VfiGovernor` and queries `state()` per proposal.
 - `vibefi proposals:show <id>`
   - Finds the proposal log, reads `proposalSnapshot` and `proposalDeadline`, prints targets + calldata.
+- `vibefi proposals:queue <id>`
+  - Finds the proposal log and calls `VfiGovernor.queue` using the original targets/values/calldatas +
+    `keccak256(description)`.
+  - Warns (non-blocking) if the proposal state is not `Succeeded`.
+- `vibefi proposals:execute <id>`
+  - Finds the proposal log and calls `VfiGovernor.execute` using the original targets/values/calldatas +
+    `keccak256(description)`.
+  - Warns (non-blocking) if the proposal state is not `Queued`.
 
 ### Propose Dapp
 
@@ -100,7 +108,8 @@ This document describes CLI design and behavior (data flow, config, and contract
 
 ## Contract Interactions
 
-- `VfiGovernor` functions: `propose`, `state`, `proposalSnapshot`, `proposalDeadline`, `proposalVotes`, `quorum`, `castVote`, `castVoteWithReason`, `vetoProposal`.
+- `VfiGovernor` functions: `propose`, `queue`, `execute`, `state`, `proposalSnapshot`, `proposalDeadline`,
+  `proposalVotes`, `quorum`, `castVote`, `castVoteWithReason`, `vetoProposal`.
 - `DappRegistry` functions: `publishDapp`, `pauseDappVersion`, `unpauseDappVersion`, `deprecateDappVersion`.
 
 ## ABI Management

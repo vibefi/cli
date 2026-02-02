@@ -318,6 +318,9 @@ async function main() {
   );
   if (result.code !== 0) throw new Error("vote:cast failed");
 
+  logSection("Mine blocks for voting period");
+  await publicClient.request({ method: "anvil_mine", params: [25] });
+
   logSection("Vote status");
   result = await runCmd(
     "bun",
@@ -325,6 +328,30 @@ async function main() {
     { cwd: cliDir, capture: true }
   );
   if (result.code !== 0) throw new Error("vote:status failed");
+
+  logSection("Queue proposal");
+  result = await runCmd(
+    "bun",
+    ["run", "src/index.ts", "proposals:queue", proposalId, "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
+    { cwd: cliDir, capture: true }
+  );
+  if (result.code !== 0) throw new Error("proposals:queue failed");
+  const queueJson = JSON.parse(result.stdout || "{}") as { txHash?: string };
+  if (!queueJson.txHash) throw new Error("Missing txHash from proposals:queue");
+
+  logSection("Advance timelock");
+  await publicClient.request({ method: "evm_increaseTime", params: [2] });
+  await publicClient.request({ method: "anvil_mine", params: [1] });
+
+  logSection("Execute proposal");
+  result = await runCmd(
+    "bun",
+    ["run", "src/index.ts", "proposals:execute", proposalId, "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
+    { cwd: cliDir, capture: true }
+  );
+  if (result.code !== 0) throw new Error("proposals:execute failed");
+  const executeJson = JSON.parse(result.stdout || "{}") as { txHash?: string };
+  if (!executeJson.txHash) throw new Error("Missing txHash from proposals:execute");
 
   logSection("Dapp list");
   result = await runCmd(

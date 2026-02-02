@@ -34,6 +34,30 @@
   },
   {
     "type": "function",
+    "name": "queue",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {"name": "targets", "type": "address[]"},
+      {"name": "values", "type": "uint256[]"},
+      {"name": "calldatas", "type": "bytes[]"},
+      {"name": "descriptionHash", "type": "bytes32"}
+    ],
+    "outputs": [{"name": "", "type": "uint256"}]
+  },
+  {
+    "type": "function",
+    "name": "execute",
+    "stateMutability": "payable",
+    "inputs": [
+      {"name": "targets", "type": "address[]"},
+      {"name": "values", "type": "uint256[]"},
+      {"name": "calldatas", "type": "bytes[]"},
+      {"name": "descriptionHash", "type": "bytes32"}
+    ],
+    "outputs": [{"name": "", "type": "uint256"}]
+  },
+  {
+    "type": "function",
     "name": "castVote",
     "stateMutability": "nonpayable",
     "inputs": [
@@ -96,6 +120,23 @@
       {"name": "startBlock", "type": "uint256", "indexed": false},
       {"name": "endBlock", "type": "uint256", "indexed": false},
       {"name": "description", "type": "string", "indexed": false}
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProposalQueued",
+    "inputs": [
+      {"name": "proposalId", "type": "uint256", "indexed": false},
+      {"name": "etaSeconds", "type": "uint256", "indexed": false}
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProposalExecuted",
+    "inputs": [
+      {"name": "proposalId", "type": "uint256", "indexed": false}
     ],
     "anonymous": false
   }

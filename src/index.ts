@@ -247,6 +247,31 @@ function requireArgs<T>(log: { args?: T } | undefined, label: string): T {
   return log.args as T;
 }
 
+async function getProposalCreatedArgs(
+  ctx: ReturnType<typeof loadContext>,
+  proposalId: string,
+  fromBlock: bigint,
+  toBlock?: bigint
+) {
+  const governor = ctx.contracts.vfiGovernor;
+  if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
+
+  const logs = await ctx.publicClient.getLogs({
+    address: governor as Hex,
+    event: proposalCreatedEvent as any,
+    fromBlock,
+    toBlock: toBlock ?? "latest"
+  });
+
+  const target = (logs as any[]).find((log) => {
+    const args = log.args as ProposalCreatedArgs | undefined;
+    return args?.proposalId?.toString() === proposalId;
+  });
+  if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
+
+  return requireArgs<ProposalCreatedArgs>(target as { args?: ProposalCreatedArgs }, "ProposalCreated");
+}
+
 function encodeRootCid(input: string): Hex {
   if (!input) {
     throw new Error("rootCid cannot be empty");
@@ -424,20 +449,12 @@ withCommonOptions(
   const governor = ctx.contracts.vfiGovernor;
   if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
 
-  const proposalLogs = await ctx.publicClient.getLogs({
-    address: governor as Hex,
-    event: proposalCreatedEvent as any,
-    fromBlock: BigInt(options.fromBlock),
-    toBlock: options.toBlock ? BigInt(options.toBlock) : "latest"
-  });
-
-  const target = (proposalLogs as any[]).find((log) => {
-    const args = log.args as ProposalCreatedArgs | undefined;
-    return args?.proposalId?.toString() === proposalId;
-  });
-  if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
-
-  const args = requireArgs<ProposalCreatedArgs>(target as { args?: ProposalCreatedArgs }, "ProposalCreated");
+  const args = await getProposalCreatedArgs(
+    ctx,
+    proposalId,
+    BigInt(options.fromBlock),
+    options.toBlock ? BigInt(options.toBlock) : undefined
+  );
   const state = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
@@ -487,6 +504,116 @@ withCommonOptions(
   console.log(`Targets: ${output.targets.join(", ")}`);
   console.log(`Values: ${output.values.join(", ")}`);
   console.log(`Calldatas: ${output.calldatas.join(", ")}`);
+});
+
+withCommonOptions(
+  program
+    .command("proposals:queue")
+    .description("Queue a governance proposal")
+    .argument("<proposalId>", "Proposal id")
+    .option("--from-block <number>", "Start block", "0")
+    .option("--to-block <number>", "End block")
+).action(async (proposalId, options) => {
+  const ctx = loadContext(options);
+  const governor = ctx.contracts.vfiGovernor;
+  if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
+
+  const args = await getProposalCreatedArgs(
+    ctx,
+    proposalId,
+    BigInt(options.fromBlock),
+    options.toBlock ? BigInt(options.toBlock) : undefined
+  );
+  const descriptionHash = keccak256(toBytes(args.description as string));
+
+  let warning: string | undefined;
+  try {
+    const state = await ctx.publicClient.readContract({
+      address: governor as Hex,
+      abi: governorAbi,
+      functionName: "state",
+      args: [BigInt(proposalId)]
+    }) as bigint;
+    const stateName = proposalStateNames[Number(state)] ?? String(state);
+    if (stateName !== "Succeeded") {
+      warning = `Proposal state is ${stateName}, expected Succeeded.`;
+    }
+  } catch {
+    warning = "Failed to read proposal state.";
+  }
+
+  const wallet = getWalletContext(ctx, options);
+  const hash = await wallet.walletClient.writeContract({
+    address: governor as Hex,
+    abi: governorAbi,
+    functionName: "queue",
+    args: [args.targets, args.values, args.calldatas, descriptionHash]
+  });
+
+  const logs = await fetchTxLogs(ctx, hash);
+  if (options.json) {
+    console.log(toJson({ txHash: hash, logs, warning }));
+    return;
+  }
+  if (warning) console.warn(`Warning: ${warning}`);
+  console.log(`Proposal queued: ${hash}`);
+  printDecodedLogs("proposals:queue", hash, logs);
+});
+
+withCommonOptions(
+  program
+    .command("proposals:execute")
+    .description("Execute a queued governance proposal")
+    .argument("<proposalId>", "Proposal id")
+    .option("--from-block <number>", "Start block", "0")
+    .option("--to-block <number>", "End block")
+).action(async (proposalId, options) => {
+  const ctx = loadContext(options);
+  const governor = ctx.contracts.vfiGovernor;
+  if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
+
+  const args = await getProposalCreatedArgs(
+    ctx,
+    proposalId,
+    BigInt(options.fromBlock),
+    options.toBlock ? BigInt(options.toBlock) : undefined
+  );
+  const descriptionHash = keccak256(toBytes(args.description as string));
+
+  let warning: string | undefined;
+  try {
+    const state = await ctx.publicClient.readContract({
+      address: governor as Hex,
+      abi: governorAbi,
+      functionName: "state",
+      args: [BigInt(proposalId)]
+    }) as bigint;
+    const stateName = proposalStateNames[Number(state)] ?? String(state);
+    if (stateName !== "Queued") {
+      warning = `Proposal state is ${stateName}, expected Queued.`;
+    }
+  } catch {
+    warning = "Failed to read proposal state.";
+  }
+
+  const totalValue = args.values.reduce((acc, value) => acc + value, 0n);
+  const wallet = getWalletContext(ctx, options);
+  const hash = await wallet.walletClient.writeContract({
+    address: governor as Hex,
+    abi: governorAbi,
+    functionName: "execute",
+    args: [args.targets, args.values, args.calldatas, descriptionHash],
+    ...(totalValue > 0n ? { value: totalValue } : {})
+  });
+
+  const logs = await fetchTxLogs(ctx, hash);
+  if (options.json) {
+    console.log(toJson({ txHash: hash, logs, warning }));
+    return;
+  }
+  if (warning) console.warn(`Warning: ${warning}`);
+  console.log(`Proposal executed: ${hash}`);
+  printDecodedLogs("proposals:execute", hash, logs);
 });
 
 withCommonOptions(
@@ -654,21 +781,12 @@ withCommonOptions(
   const ctx = loadContext(options);
   const governor = ctx.contracts.vfiGovernor;
   if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
-
-  const proposalLogs = await ctx.publicClient.getLogs({
-    address: governor as Hex,
-    event: proposalCreatedEvent as any,
-    fromBlock: BigInt(options.fromBlock),
-    toBlock: options.toBlock ? BigInt(options.toBlock) : "latest"
-  });
-
-  const target = (proposalLogs as any[]).find((log) => {
-    const args = log.args as ProposalCreatedArgs | undefined;
-    return args?.proposalId?.toString() === proposalId;
-  });
-  if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
-
-  const args = requireArgs<ProposalCreatedArgs>(target as { args?: ProposalCreatedArgs }, "ProposalCreated");
+  const args = await getProposalCreatedArgs(
+    ctx,
+    proposalId,
+    BigInt(options.fromBlock),
+    options.toBlock ? BigInt(options.toBlock) : undefined
+  );
   const descriptionHash = keccak256(toBytes(args.description as string));
 
   const wallet = getWalletContext(ctx, options);
