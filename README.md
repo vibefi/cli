@@ -77,7 +77,8 @@ ANVIL_PORT=8546 bun run test:e2e
 ## Package workflow
 
 The `package` command validates a local dapp bundle and produces a deterministic
-manifest + bundle directory. The output `rootCid` can be used with `dapp:propose`.
+manifest + bundle directory. By default it publishes to a local IPFS node and
+prints the folder CID for `dapp:propose`.
 
 ```bash
 bun run src/index.ts package \
@@ -85,4 +86,12 @@ bun run src/index.ts package \
   --name "My Dapp" \
   --dapp-version "0.1.0" \
   --description "My first vapp"
+
+# Skip IPFS publish and return a deterministic hash
+bun run src/index.ts package \
+  --path ./my-dapp \
+  --name "My Dapp" \
+  --dapp-version "0.1.0" \
+  --description "My first vapp" \
+  --no-ipfs
 ```

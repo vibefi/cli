@@ -89,6 +89,9 @@ This document describes CLI design and behavior (data flow, config, and contract
 - `vibefi package`
   - Use `--dapp-version` (not `--version`) to avoid conflicting with CLI version flag.
   - Validates a local React dapp bundle and outputs a deterministic `rootCid`.
+  - Publishes the bundle to IPFS by default (uses `http://127.0.0.1:5001`).
+  - `--no-ipfs` skips publish and returns a deterministic hash of the manifest.
+  - `--ipfs-api` overrides the IPFS API URL.
   - Validates top-level structure: `src/`, `assets/`, `abis/`, `addresses.json`, `index.html`, `package.json`.
   - Enforces dependency allowlist + exact versions.
   - Rejects forbidden patterns (HTTP, fetch/XHR/WebSocket, dynamic HTTP imports).

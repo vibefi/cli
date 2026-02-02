@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import { getAddress, isHex, keccak256, toBytes } from "viem";
 
 export type PackageOptions = {
@@ -11,6 +10,8 @@ export type PackageOptions = {
   description: string;
   constraintsPath?: string;
   emitManifest?: boolean;
+  ipfs?: boolean;
+  ipfsApi?: string;
 };
 
 type Constraints = {
@@ -26,7 +27,6 @@ type Constraints = {
 
 type ManifestFile = {
   path: string;
-  hash: string;
   bytes: number;
 };
 
@@ -34,6 +34,7 @@ export type PackageResult = {
   rootCid: string;
   outDir: string;
   manifest: Record<string, unknown>;
+  ipfsApi?: string;
 };
 
 const DEFAULT_CONSTRAINTS: Constraints = {
@@ -94,10 +95,6 @@ function stableStringify(value: unknown): string {
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
   return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(",")}}`;
-}
-
-function sha256Hex(data: Buffer | string): string {
-  return crypto.createHash("sha256").update(data).digest("hex");
 }
 
 function ensureDir(dir: string) {
@@ -286,7 +283,40 @@ function writeBundle(baseDir: string, outDir: string, files: string[]) {
   }
 }
 
-export function packageDapp(options: PackageOptions): PackageResult {
+async function publishToIpfs(outDir: string, ipfsApi: string): Promise<string> {
+  const form = new FormData();
+  const files = walkFiles(outDir);
+  for (const file of files) {
+    const rel = relativeTo(outDir, file);
+    const data = fs.readFileSync(file);
+    form.append("file", new Blob([data]), rel);
+  }
+
+  const url = new URL("/api/v0/add", ipfsApi);
+  url.searchParams.set("recursive", "true");
+  url.searchParams.set("wrap-with-directory", "true");
+  url.searchParams.set("cid-version", "1");
+  url.searchParams.set("pin", "true");
+
+  const response = await fetch(url.toString(), { method: "POST", body: form });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`IPFS add failed: ${response.status} ${text}`);
+  }
+  const body = await response.text();
+  const lines = body.trim().split("\n").filter(Boolean);
+  if (lines.length === 0) {
+    throw new Error("IPFS add returned empty response");
+  }
+  const last = JSON.parse(lines[lines.length - 1]) as { Hash?: string; Cid?: { "/": string } };
+  const cid = last.Hash ?? last.Cid?.["/"];
+  if (!cid) {
+    throw new Error("IPFS add response missing CID");
+  }
+  return cid;
+}
+
+export async function packageDapp(options: PackageOptions): Promise<PackageResult> {
   const baseDir = path.resolve(options.path);
   if (!fs.existsSync(baseDir)) {
     throw new Error(`Path does not exist: ${baseDir}`);
@@ -303,7 +333,6 @@ export function packageDapp(options: PackageOptions): PackageResult {
       const content = fs.readFileSync(file);
       return {
         path: relativeTo(baseDir, file),
-        hash: sha256Hex(content),
         bytes: content.length
       };
     })
@@ -323,12 +352,6 @@ export function packageDapp(options: PackageOptions): PackageResult {
     files: manifestFiles
   };
 
-  const manifestJson = stableStringify(manifest);
-  const rootCid = keccak256(toBytes(manifestJson));
-  if (toBytes(rootCid).length > constraints.maxRootCidBytes) {
-    throw new Error(`rootCid exceeds ${constraints.maxRootCidBytes} bytes`);
-  }
-
   const outDir = options.outDir
     ? path.resolve(options.outDir)
     : path.join(baseDir, ".vibefi", "bundle", `${options.name}-${options.version}`);
@@ -337,5 +360,19 @@ export function packageDapp(options: PackageOptions): PackageResult {
     fs.writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2));
   }
 
+  if (options.ipfs !== false) {
+    const ipfsApi = options.ipfsApi ?? "http://127.0.0.1:5001";
+    const rootCid = await publishToIpfs(outDir, ipfsApi);
+    if (toBytes(rootCid).length > constraints.maxRootCidBytes) {
+      throw new Error(`rootCid exceeds ${constraints.maxRootCidBytes} bytes`);
+    }
+    return { rootCid, outDir, manifest, ipfsApi };
+  }
+
+  const manifestJson = stableStringify(manifest);
+  const rootCid = keccak256(toBytes(manifestJson));
+  if (toBytes(rootCid).length > constraints.maxRootCidBytes) {
+    throw new Error(`rootCid exceeds ${constraints.maxRootCidBytes} bytes`);
+  }
   return { rootCid, outDir, manifest };
 }

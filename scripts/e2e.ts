@@ -251,6 +251,7 @@ async function main() {
       "0.1.0",
       "--description",
       "Demo package",
+      "--no-ipfs",
       "--json"
     ],
     { cwd: cliDir, capture: true }
