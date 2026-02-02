@@ -122,9 +122,14 @@ function toJson(value: unknown) {
   );
 }
 
-type DecodedLog =
-  | { address: string; contract: string; event: string; args: unknown }
-  | { address: string; event: "Unknown"; data: Hex; topics: Hex[] };
+type DecodedLog = {
+  address: string;
+  event: string;
+  contract?: string;
+  args?: unknown;
+  data?: Hex;
+  topics?: Hex[];
+};
 
 async function fetchTxLogs(
   ctx: ReturnType<typeof loadContext>,
@@ -144,7 +149,7 @@ async function fetchTxLogs(
           abi: governorAbi,
           data: log.data,
           topics: log.topics
-        });
+        }) as { eventName: string; args: unknown };
         return { address: log.address, contract: "VfiGovernor", event: decoded.eventName, args: decoded.args };
       } catch {
         // fallthrough
@@ -157,7 +162,7 @@ async function fetchTxLogs(
           abi: dappRegistryAbi,
           data: log.data,
           topics: log.topics
-        });
+        }) as { eventName: string; args: unknown };
         return { address: log.address, contract: "DappRegistry", event: decoded.eventName, args: decoded.args };
       } catch {
         // fallthrough
@@ -170,7 +175,7 @@ async function fetchTxLogs(
           abi: vfiTokenAbi,
           data: log.data,
           topics: log.topics
-        });
+        }) as { eventName: string; args: unknown };
         return { address: log.address, contract: "VfiToken", event: decoded.eventName, args: decoded.args };
       } catch {
         // fallthrough
@@ -235,8 +240,8 @@ type DappLogArgs = {
   reason?: string;
 };
 
-function requireArgs<T>(log: { args?: unknown }, label: string): T {
-  if (!log.args) {
+function requireArgs<T>(log: { args?: T } | undefined, label: string): T {
+  if (!log?.args) {
     throw new Error(`Missing log args for ${label}`);
   }
   return log.args as T;
@@ -360,21 +365,21 @@ withCommonOptions(
 
   const logs = await ctx.publicClient.getLogs({
     address: governor as Hex,
-    event: proposalCreatedEvent,
+    event: proposalCreatedEvent as any,
     fromBlock,
     toBlock: toBlock ?? "latest"
   });
 
   const proposals = await Promise.all(
-    logs.map(async (log) => {
-      const args = requireArgs<ProposalCreatedArgs>(log, "ProposalCreated");
+    (logs as any[]).map(async (log) => {
+      const args = requireArgs<ProposalCreatedArgs>(log as { args?: ProposalCreatedArgs }, "ProposalCreated");
       const proposalId = args.proposalId;
       const state = await ctx.publicClient.readContract({
         address: governor as Hex,
         abi: governorAbi,
         functionName: "state",
         args: [proposalId]
-      });
+      }) as bigint;
       return {
         proposalId: proposalId.toString(),
         proposer: getAddress(args.proposer),
@@ -416,38 +421,38 @@ withCommonOptions(
 
   const proposalLogs = await ctx.publicClient.getLogs({
     address: governor as Hex,
-    event: proposalCreatedEvent,
+    event: proposalCreatedEvent as any,
     fromBlock: BigInt(options.fromBlock),
     toBlock: options.toBlock ? BigInt(options.toBlock) : "latest"
   });
 
-  const target = proposalLogs.find((log) => {
+  const target = (proposalLogs as any[]).find((log) => {
     const args = log.args as ProposalCreatedArgs | undefined;
     return args?.proposalId?.toString() === proposalId;
   });
   if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
 
-  const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
+  const args = requireArgs<ProposalCreatedArgs>(target as { args?: ProposalCreatedArgs }, "ProposalCreated");
   const state = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "state",
     args: [BigInt(proposalId)]
-  });
+  }) as bigint;
 
   const snapshot = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "proposalSnapshot",
     args: [BigInt(proposalId)]
-  });
+  }) as bigint;
 
   const deadline = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "proposalDeadline",
     args: [BigInt(proposalId)]
-  });
+  }) as bigint;
 
   const output = {
     proposalId,
@@ -581,21 +586,21 @@ withCommonOptions(
     abi: governorAbi,
     functionName: "proposalSnapshot",
     args: [BigInt(proposalId)]
-  });
+  }) as bigint;
 
   const votes = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "proposalVotes",
     args: [BigInt(proposalId)]
-  });
+  }) as readonly [bigint, bigint, bigint];
 
   const quorum = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "quorum",
     args: [snapshot]
-  });
+  }) as bigint;
 
   let decimals = 18;
   if (ctx.contracts.vfiToken) {
@@ -647,18 +652,18 @@ withCommonOptions(
 
   const proposalLogs = await ctx.publicClient.getLogs({
     address: governor as Hex,
-    event: proposalCreatedEvent,
+    event: proposalCreatedEvent as any,
     fromBlock: BigInt(options.fromBlock),
     toBlock: options.toBlock ? BigInt(options.toBlock) : "latest"
   });
 
-  const target = proposalLogs.find((log) => {
+  const target = (proposalLogs as any[]).find((log) => {
     const args = log.args as ProposalCreatedArgs | undefined;
     return args?.proposalId?.toString() === proposalId;
   });
   if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
 
-  const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
+  const args = requireArgs<ProposalCreatedArgs>(target as { args?: ProposalCreatedArgs }, "ProposalCreated");
   const descriptionHash = keccak256(toBytes(args.description as string));
 
   const wallet = getWalletContext(ctx, options);
@@ -728,12 +733,12 @@ withCommonOptions(
   const toBlock = options.toBlock ? BigInt(options.toBlock) : "latest";
 
   const [published, upgraded, metadata, paused, unpaused, deprecated] = await Promise.all([
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappPublishedEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappUpgradedEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappMetadataEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappPausedEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappUnpausedEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappDeprecatedEvent, fromBlock, toBlock })
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappPublishedEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappUpgradedEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappMetadataEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappPausedEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappUnpausedEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappDeprecatedEvent as any, fromBlock, toBlock })
   ]);
 
   const allLogs = [...published, ...upgraded, ...metadata, ...paused, ...unpaused, ...deprecated].sort(
@@ -770,8 +775,8 @@ withCommonOptions(
     return { dapp, version };
   };
 
-  for (const log of allLogs) {
-    const args = requireArgs<DappLogArgs>(log, log.eventName ?? "DappEvent");
+  for (const log of allLogs as any[]) {
+    const args = requireArgs<DappLogArgs>(log as { args?: DappLogArgs }, log.eventName ?? "DappEvent");
     if (log.eventName === "DappPublished") {
       const dappId = args.dappId;
       const versionId = args.versionId ?? 0n;
