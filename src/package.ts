@@ -106,7 +106,7 @@ function walkFiles(root: string): string[] {
   const entries = fs.readdirSync(root, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
-    if (entry.name === "node_modules" || entry.name === ".git") {
+    if (entry.name.startsWith(".") || entry.name === "node_modules") {
       continue;
     }
     const fullPath = path.join(root, entry.name);
@@ -238,6 +238,10 @@ function validateAddresses(value: unknown, context: string) {
   }
   if (Array.isArray(value)) {
     value.forEach((entry, index) => validateAddresses(entry, `${context}[${index}]`));
+    return;
+  }
+  if (typeof value === "number") {
+    // Allow numeric metadata fields (e.g. chainId).
     return;
   }
   if (value && typeof value === "object") {

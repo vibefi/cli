@@ -82,7 +82,7 @@ async function waitForIpfs(timeoutMs: number) {
   const url = new URL("/api/v0/version", ipfsApi);
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(url.toString());
+      const res = await fetch(url.toString(), { method: "POST" });
       if (res.ok) return true;
     } catch {
       // ignore
@@ -157,6 +157,10 @@ async function main() {
   let devnetProc: ReturnType<typeof spawn> | null = null;
   const rpcAlreadyUp = await waitForRpc(2000);
   if (!rpcAlreadyUp) {
+    // Remove stale devnet JSON so we don't race with the background deploy.
+    // forge script writes it during simulation (before broadcast), so an
+    // old file would make ensureContractsDeployed return prematurely.
+    fs.rmSync(devnetJson, { force: true });
     devnetProc = spawn("./script/local-devnet.sh", [], {
       cwd: contractsDir,
       env: { ...process.env, ANVIL_PORT: anvilPort },
@@ -185,8 +189,22 @@ async function main() {
     account: devAccount,
     transport: http(rpcUrl)
   });
-  const hasContracts = await ensureContractsDeployed();
-  if (!hasContracts) {
+
+  if (devnetProc) {
+    // We started the devnet — wait for the background deploy to finish
+    // rather than racing it with a second deployContracts call.
+    logSection("Wait for contracts");
+    const deployTimeout = 60000;
+    const deployStart = Date.now();
+    while (Date.now() - deployStart < deployTimeout) {
+      if (await ensureContractsDeployed()) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (!(await ensureContractsDeployed())) {
+      devnetProc.kill("SIGTERM");
+      throw new Error("Contracts not deployed after waiting for background devnet.");
+    }
+  } else if (!(await ensureContractsDeployed())) {
     logSection("Deploy contracts");
     await deployContracts(mnemonic);
   }

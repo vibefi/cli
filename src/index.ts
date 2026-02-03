@@ -906,14 +906,14 @@ withCommonOptions(
       const dappId = args.dappId;
       const versionId = args.versionId ?? 0n;
       const { dapp, version } = getVersion(dappId, versionId);
-      version.rootCid = args.rootCid as string;
+      version.rootCid = new TextDecoder().decode(toBytes(args.rootCid as Hex));
       version.status = "Published";
       dapp.latestVersionId = versionId;
     } else if (log.eventName === "DappUpgraded") {
       const dappId = args.dappId;
       const versionId = args.toVersionId ?? 0n;
       const { dapp, version } = getVersion(dappId, versionId);
-      version.rootCid = args.rootCid as string;
+      version.rootCid = new TextDecoder().decode(toBytes(args.rootCid as Hex));
       version.status = "Published";
       dapp.latestVersionId = versionId;
     } else if (log.eventName === "DappMetadata") {
@@ -969,16 +969,21 @@ program
   .option("--json", "Output JSON")
   .action(async (options) => {
     const outDir = path.resolve(options.out);
-    const manifest = await fetchDappManifest(options.rootCid, options.ipfsGateway);
-    await downloadDappBundle(options.rootCid, outDir, options.ipfsGateway, manifest);
+    // rootCid may arrive as on-chain hex bytes (e.g. from dapp:list).
+    // Decode back to the original CID string for IPFS gateway requests.
+    const cidForIpfs = isHex(options.rootCid)
+      ? new TextDecoder().decode(toBytes(options.rootCid as Hex))
+      : (options.rootCid as string);
+    const manifest = await fetchDappManifest(cidForIpfs, options.ipfsGateway);
+    await downloadDappBundle(cidForIpfs, outDir, options.ipfsGateway, manifest);
 
     let computedCid: string | undefined;
     let verified: boolean | undefined;
     if (options.verify !== false) {
       computedCid = await computeIpfsCid(outDir, options.ipfsApi);
-      verified = computedCid === options.rootCid;
+      verified = computedCid === cidForIpfs;
       if (!verified) {
-        throw new Error(`CID mismatch: expected ${options.rootCid} got ${computedCid}`);
+        throw new Error(`CID mismatch: expected ${cidForIpfs} got ${computedCid}`);
       }
     }
 
