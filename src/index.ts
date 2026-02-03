@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
+import path from "node:path";
 import {
   bytesToHex,
   decodeEventLog,
@@ -35,6 +36,7 @@ import {
   resolveRpcUrl
 } from "./config";
 import { getPublicClient, getWalletClient, resolvePrivateKey } from "./clients";
+import { computeIpfsCid, downloadDappBundle, fetchDappManifest } from "./ipfs";
 
 const program = new Command();
 
@@ -955,6 +957,48 @@ withCommonOptions(
     if (dapp.description) console.log(`  ${dapp.description}`);
   }
 });
+
+program
+  .command("dapp:fetch")
+  .description("Download a published dapp bundle from IPFS")
+  .requiredOption("--root-cid <cid>", "Root CID")
+  .option("--out <dir>", "Output directory", ".vibefi/cache")
+  .option("--ipfs-api <url>", "IPFS API URL", "http://127.0.0.1:5001")
+  .option("--ipfs-gateway <url>", "IPFS gateway URL", "http://127.0.0.1:8080")
+  .option("--no-verify", "Skip CID verification")
+  .option("--json", "Output JSON")
+  .action(async (options) => {
+    const outDir = path.resolve(options.out);
+    const manifest = await fetchDappManifest(options.rootCid, options.ipfsGateway);
+    await downloadDappBundle(options.rootCid, outDir, options.ipfsGateway, manifest);
+
+    let computedCid: string | undefined;
+    let verified: boolean | undefined;
+    if (options.verify !== false) {
+      computedCid = await computeIpfsCid(outDir, options.ipfsApi);
+      verified = computedCid === options.rootCid;
+      if (!verified) {
+        throw new Error(`CID mismatch: expected ${options.rootCid} got ${computedCid}`);
+      }
+    }
+
+    const output = {
+      rootCid: options.rootCid,
+      outDir,
+      ipfsApi: options.ipfsApi,
+      ipfsGateway: options.ipfsGateway,
+      verified,
+      computedCid
+    };
+    if (options.json) {
+      console.log(toJson(output));
+      return;
+    }
+    console.log(`Fetched ${options.rootCid} to ${outDir}`);
+    if (verified) {
+      console.log(`Verified CID: ${computedCid}`);
+    }
+  });
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err.message ?? err);

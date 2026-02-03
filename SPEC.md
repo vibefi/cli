@@ -92,6 +92,13 @@ This document describes CLI design and behavior (data flow, config, and contract
   - Combines logs in block/logIndex order to compute the latest version per `dappId`.
   - Outputs: `dappId`, latest `versionId`, `name`, `version`, `description`, `status`, `rootCid`.
 
+### Dapp Fetch
+
+- `vibefi dapp:fetch --root-cid <cid>`
+  - Downloads `manifest.json` and bundle files from an IPFS gateway.
+  - Computes the bundle CID locally via `ipfs add --only-hash` and verifies it matches.
+  - Output includes `outDir` and verification status.
+
 ### Package Dapp
 
 - `vibefi package`

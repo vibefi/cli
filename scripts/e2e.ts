@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import os from "node:os";
 import {
   createPublicClient,
   createWalletClient,
@@ -17,6 +16,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const contractsDir = path.join(repoRoot, "contracts");
 const cliDir = path.join(repoRoot, "cli");
 const devnetJson = path.join(contractsDir, ".devnet", "devnet.json");
+const ipfsApi = process.env.IPFS_API ?? "http://127.0.0.1:5001";
+const ipfsGateway = process.env.IPFS_GATEWAY ?? "http://127.0.0.1:8080";
 const anvilPort = process.env.ANVIL_PORT ?? "8546";
 const rpcUrl = `http://127.0.0.1:${anvilPort}`;
 const publicClient = createPublicClient({ transport: http(rpcUrl) });
@@ -68,6 +69,21 @@ async function waitForRpc(timeoutMs: number) {
     try {
       await publicClient.getChainId();
       return true;
+    } catch {
+      // ignore
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
+
+async function waitForIpfs(timeoutMs: number) {
+  const start = Date.now();
+  const url = new URL("/api/v0/version", ipfsApi);
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url.toString());
+      if (res.ok) return true;
     } catch {
       // ignore
     }
@@ -156,6 +172,13 @@ async function main() {
     throw new Error(`RPC not ready at ${rpcUrl}`);
   }
 
+  logSection("Check IPFS");
+  const ipfsReady = await waitForIpfs(8000);
+  if (!ipfsReady) {
+    devnetProc?.kill("SIGTERM");
+    throw new Error(`IPFS not ready at ${ipfsApi}. Start with docker compose.`);
+  }
+
   const mnemonic = process.env.MNEMONIC ?? "test test test test test test test test test test test junk";
   const devAccount = mnemonicToAccount(mnemonic);
   const walletClient = createWalletClient({
@@ -192,50 +215,7 @@ async function main() {
   if (result.code !== 0) throw new Error("proposals:list failed");
 
   logSection("Package dapp");
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vibefi-dapp-"));
-  const dappDir = path.join(tempDir, "demo");
-  fs.mkdirSync(dappDir, { recursive: true });
-  fs.mkdirSync(path.join(dappDir, "src"), { recursive: true });
-  fs.mkdirSync(path.join(dappDir, "assets"), { recursive: true });
-  fs.mkdirSync(path.join(dappDir, "abis"), { recursive: true });
-
-  fs.writeFileSync(
-    path.join(dappDir, "package.json"),
-    JSON.stringify(
-      {
-        name: "demo-dapp",
-        version: "0.1.0",
-        private: true,
-        type: "module",
-        dependencies: {
-          react: "19.2.4",
-          "react-dom": "19.2.4",
-          wagmi: "3.4.1",
-          viem: "2.45.0"
-        },
-        devDependencies: {
-          typescript: "5.9.3",
-          vite: "7.2.4"
-        }
-      },
-      null,
-      2
-    )
-  );
-  fs.writeFileSync(
-    path.join(dappDir, "src", "App.tsx"),
-    "export function App() { return <div>hello vibefi</div>; }\\n"
-  );
-  fs.writeFileSync(
-    path.join(dappDir, "assets", "logo.webp"),
-    Buffer.from([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50])
-  );
-  fs.writeFileSync(path.join(dappDir, "abis", "Example.json"), "[]\n");
-  fs.writeFileSync(
-    path.join(dappDir, "addresses.json"),
-    JSON.stringify({ mainnet: { example: "0x0000000000000000000000000000000000000000" } }, null, 2)
-  );
-  fs.writeFileSync(path.join(dappDir, "index.html"), "<!doctype html><html><body></body></html>\\n");
+  const dappDir = path.join(repoRoot, "dapp-examples", "uniswap-v2-example");
 
   result = await runCmd(
     "bun",
@@ -246,12 +226,13 @@ async function main() {
       "--path",
       dappDir,
       "--name",
-      "Demo",
+      "Uniswap V2",
       "--dapp-version",
-      "0.1.0",
+      "0.0.1",
       "--description",
-      "Demo package",
-      "--no-ipfs",
+      "Uniswap V2 example",
+      "--ipfs-api",
+      ipfsApi,
       "--json"
     ],
     { cwd: cliDir, capture: true }
@@ -275,11 +256,11 @@ async function main() {
       "--root-cid",
       packageJson.rootCid,
       "--name",
-      "Hello",
+      "Uniswap V2",
       "--dapp-version",
-      "0.1.0",
+      "0.0.1",
       "--description",
-      "Test",
+      "Uniswap V2 example",
       "--proposal-description",
       proposalDescription,
       "--json"
@@ -360,6 +341,30 @@ async function main() {
     { cwd: cliDir, capture: true }
   );
   if (result.code !== 0) throw new Error("dapp:list failed");
+  const dappList = JSON.parse(result.stdout || "[]") as Array<{ rootCid?: string }>;
+  const latest = dappList[dappList.length - 1];
+  if (!latest?.rootCid) throw new Error("Missing rootCid from dapp:list");
+
+  logSection("Fetch dapp bundle");
+  result = await runCmd(
+    "bun",
+    [
+      "run",
+      "src/index.ts",
+      "dapp:fetch",
+      "--root-cid",
+      latest.rootCid,
+      "--out",
+      path.join(cliDir, ".vibefi", "cache", latest.rootCid),
+      "--ipfs-api",
+      ipfsApi,
+      "--ipfs-gateway",
+      ipfsGateway,
+      "--json"
+    ],
+    { cwd: cliDir, capture: true }
+  );
+  if (result.code !== 0) throw new Error("dapp:fetch failed");
 
   devnetProc?.kill("SIGTERM");
   console.log("\nE2E test completed successfully.");

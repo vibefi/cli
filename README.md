@@ -48,6 +48,7 @@ bun run src/index.ts proposals:execute 1
 bun run src/index.ts council:pause --dapp-id 1 --version-id 1 --reason "incident"
 
 bun run src/index.ts dapp:list
+bun run src/index.ts dapp:fetch --root-cid <cid> --out .vibefi/cache
 ```
 
 Common options:

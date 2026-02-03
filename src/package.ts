@@ -46,6 +46,7 @@ const DEFAULT_CONSTRAINTS: Constraints = {
     shadcn: "3.7.0"
   },
   allowedDevDependencies: {
+    "@vitejs/plugin-react": "5.1.2",
     typescript: "5.9.3",
     vite: "7.2.4"
   },
