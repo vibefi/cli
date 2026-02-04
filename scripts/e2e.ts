@@ -26,8 +26,10 @@ type DevnetConfig = {
   vfiGovernor: string;
 };
 
+const startTime = Date.now();
 function logSection(title: string) {
-  console.log("\n=== " + title + " ===");
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`\n=== ${title} [+${elapsed}s] ===`);
 }
 
 function runCmd(
@@ -96,16 +98,6 @@ async function getCode(address: string): Promise<string> {
   return publicClient.getBytecode({ address: address as Hex }).then((code) => code ?? "0x");
 }
 
-async function deriveKey(index: number, mnemonic: string): Promise<string> {
-  const { code, stdout } = await runCmd(
-    "cast",
-    ["wallet", "private-key", "--mnemonic", mnemonic, "--mnemonic-index", String(index)],
-    { cwd: repoRoot, capture: true, stream: false }
-  );
-  if (code !== 0) throw new Error(`Failed to derive key index ${index}`);
-  return stdout.trim();
-}
-
 async function ensureContractsDeployed() {
   if (!fs.existsSync(devnetJson)) return false;
   const devnet = JSON.parse(fs.readFileSync(devnetJson, "utf-8")) as DevnetConfig;
@@ -113,73 +105,32 @@ async function ensureContractsDeployed() {
   return code !== "0x";
 }
 
-async function deployContracts(mnemonic: string) {
-  fs.mkdirSync(path.dirname(devnetJson), { recursive: true });
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    FOUNDRY_PROFILE: "ci",
-    RPC_URL: rpcUrl,
-    OUTPUT_JSON: devnetJson,
-    DEV_PRIVATE_KEY: await deriveKey(0, mnemonic),
-    VOTER1_PRIVATE_KEY: await deriveKey(1, mnemonic),
-    VOTER2_PRIVATE_KEY: await deriveKey(2, mnemonic),
-    SECURITY_COUNCIL_1_PRIVATE_KEY: await deriveKey(3, mnemonic),
-    SECURITY_COUNCIL_2_PRIVATE_KEY: await deriveKey(4, mnemonic),
-    SECURITY_COUNCIL: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
-    INITIAL_SUPPLY: "1000000000000000000000000",
-    VOTING_DELAY: "1",
-    VOTING_PERIOD: "20",
-    QUORUM_FRACTION: "4",
-    TIMELOCK_DELAY: "1",
-    MIN_PROPOSAL_BPS: "100",
-    VOTER_ALLOCATION: "100000000000000000000000",
-    COUNCIL_ALLOCATION: "50000000000000000000000"
-  };
-
-  const result = await runCmd(
-    "forge",
-    [
-      "script",
-      "script/LocalDevnet.s.sol:LocalDevnet",
-      "--rpc-url",
-      rpcUrl,
-      "--private-key",
-      env.DEV_PRIVATE_KEY as string,
-      "--broadcast"
-    ],
-    { cwd: contractsDir, env, capture: true }
-  );
-  if (result.code !== 0) throw new Error("Contract deploy failed");
-}
-
 async function main() {
   logSection("Start devnet");
-  let devnetProc: ReturnType<typeof spawn> | null = null;
-  const rpcAlreadyUp = await waitForRpc(2000);
-  if (!rpcAlreadyUp) {
-    // Remove stale devnet JSON so we don't race with the background deploy.
-    // forge script writes it during simulation (before broadcast), so an
-    // old file would make ensureContractsDeployed return prematurely.
-    fs.rmSync(devnetJson, { force: true });
-    devnetProc = spawn("./script/local-devnet.sh", [], {
-      cwd: contractsDir,
-      env: { ...process.env, ANVIL_PORT: anvilPort },
-      stdio: "inherit"
-    });
-  } else {
-    console.log(`RPC already running at ${rpcUrl}, skipping devnet start.`);
+  // Kill any existing anvil on the port so we always get a fresh chain.
+  if (await waitForRpc(2000)) {
+    console.log(`Anvil already running on :${anvilPort}, killing...`);
+    await runCmd("bash", ["-c", `lsof -t -i:${anvilPort} -a -c anvil | xargs kill -SIGTERM 2>/dev/null || true`], { capture: true, stream: false });
+    await new Promise((r) => setTimeout(r, 1000));
   }
+  // Remove stale devnet JSON so we don't race with the background deploy.
+  // forge script writes it during simulation (before broadcast), so an
+  // old file would make ensureContractsDeployed return prematurely.
+  fs.rmSync(devnetJson, { force: true });
+  spawn("./script/local-devnet.sh", [], {
+    cwd: contractsDir,
+    env: { ...process.env, ANVIL_PORT: anvilPort },
+    stdio: "inherit"
+  }).unref();
 
-  const rpcReady = rpcAlreadyUp || (await waitForRpc(15000));
+  const rpcReady = await waitForRpc(15000);
   if (!rpcReady) {
-    devnetProc?.kill("SIGTERM");
     throw new Error(`RPC not ready at ${rpcUrl}`);
   }
 
   logSection("Check IPFS");
   const ipfsReady = await waitForIpfs(8000);
   if (!ipfsReady) {
-    devnetProc?.kill("SIGTERM");
     throw new Error(`IPFS not ready at ${ipfsApi}. Start with docker compose.`);
   }
 
@@ -190,23 +141,15 @@ async function main() {
     transport: http(rpcUrl)
   });
 
-  if (devnetProc) {
-    // We started the devnet — wait for the background deploy to finish
-    // rather than racing it with a second deployContracts call.
-    logSection("Wait for contracts");
-    const deployTimeout = 60000;
-    const deployStart = Date.now();
-    while (Date.now() - deployStart < deployTimeout) {
-      if (await ensureContractsDeployed()) break;
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    if (!(await ensureContractsDeployed())) {
-      devnetProc.kill("SIGTERM");
-      throw new Error("Contracts not deployed after waiting for background devnet.");
-    }
-  } else if (!(await ensureContractsDeployed())) {
-    logSection("Deploy contracts");
-    await deployContracts(mnemonic);
+  logSection("Wait for contracts");
+  const deployTimeout = 60000;
+  const deployStart = Date.now();
+  while (Date.now() - deployStart < deployTimeout) {
+    if (await ensureContractsDeployed()) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  if (!(await ensureContractsDeployed())) {
+    throw new Error("Contracts not deployed after waiting for background devnet.");
   }
 
   logSection("Send sanity tx via viem");
@@ -384,8 +327,8 @@ async function main() {
   );
   if (result.code !== 0) throw new Error("dapp:fetch failed");
 
-  devnetProc?.kill("SIGTERM");
-  console.log("\nE2E test completed successfully.");
+  console.log(`\nAnvil left running on :${anvilPort}`);
+  console.log("E2E test completed successfully.");
 }
 
 main().catch((err) => {
