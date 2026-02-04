@@ -33,6 +33,7 @@ import {
   resolveChainId,
   resolveContracts,
   resolveDevnetJson,
+  resolveFromBlock,
   resolveNetwork,
   resolveRpcUrl
 } from "./config";
@@ -393,7 +394,7 @@ withCommonOptions(
   const governor = ctx.contracts.vfiGovernor;
   if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
 
-  const fromBlock = BigInt(options.fromBlock);
+  const fromBlock = BigInt(resolveFromBlock(options.fromBlock, ctx.devnet));
   const toBlock = options.toBlock ? BigInt(options.toBlock) : undefined;
 
   const logs = await ctx.publicClient.getLogs({
@@ -455,7 +456,7 @@ withCommonOptions(
   const args = await getProposalCreatedArgs(
     ctx,
     proposalId,
-    BigInt(options.fromBlock),
+    BigInt(resolveFromBlock(options.fromBlock, ctx.devnet)),
     options.toBlock ? BigInt(options.toBlock) : undefined
   );
   const state = await ctx.publicClient.readContract({
@@ -524,7 +525,7 @@ withCommonOptions(
   const args = await getProposalCreatedArgs(
     ctx,
     proposalId,
-    BigInt(options.fromBlock),
+    BigInt(resolveFromBlock(options.fromBlock, ctx.devnet)),
     options.toBlock ? BigInt(options.toBlock) : undefined
   );
   const descriptionHash = keccak256(toBytes(args.description as string));
@@ -578,7 +579,7 @@ withCommonOptions(
   const args = await getProposalCreatedArgs(
     ctx,
     proposalId,
-    BigInt(options.fromBlock),
+    BigInt(resolveFromBlock(options.fromBlock, ctx.devnet)),
     options.toBlock ? BigInt(options.toBlock) : undefined
   );
   const descriptionHash = keccak256(toBytes(args.description as string));
@@ -787,7 +788,7 @@ withCommonOptions(
   const args = await getProposalCreatedArgs(
     ctx,
     proposalId,
-    BigInt(options.fromBlock),
+    BigInt(resolveFromBlock(options.fromBlock, ctx.devnet)),
     options.toBlock ? BigInt(options.toBlock) : undefined
   );
   const descriptionHash = keccak256(toBytes(args.description as string));
@@ -855,7 +856,7 @@ withCommonOptions(
   const dappRegistry = ctx.contracts.dappRegistry;
   if (!dappRegistry) throw new Error("Missing dappRegistry address in config/devnet.");
 
-  const fromBlock = BigInt(options.fromBlock);
+  const fromBlock = BigInt(resolveFromBlock(options.fromBlock, ctx.devnet));
   const toBlock = options.toBlock ? BigInt(options.toBlock) : "latest";
 
   const [published, upgraded, metadata, paused, unpaused, deprecated] = await Promise.all([

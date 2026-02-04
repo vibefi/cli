@@ -67,15 +67,19 @@ function runCmd(
 
 async function waitForRpc(timeoutMs: number) {
   const start = Date.now();
+  let attempts = 0;
   while (Date.now() - start < timeoutMs) {
     try {
-      await publicClient.getChainId();
+      attempts++;
+      const chainId = await publicClient.getChainId();
+      console.log(`RPC responded with chainId=${chainId} after ${attempts} attempts`);
       return true;
     } catch {
       // ignore
     }
     await new Promise((r) => setTimeout(r, 250));
   }
+  console.log(`RPC not ready after ${attempts} attempts (${timeoutMs}ms timeout)`);
   return false;
 }
 
@@ -108,31 +112,40 @@ async function ensureContractsDeployed() {
 async function main() {
   logSection("Start devnet");
   // Kill any existing anvil on the port so we always get a fresh chain.
+  console.log(`Checking if anvil is already running on :${anvilPort}...`);
   if (await waitForRpc(2000)) {
     console.log(`Anvil already running on :${anvilPort}, killing...`);
     await runCmd("bash", ["-c", `lsof -t -i:${anvilPort} -a -c anvil | xargs kill -SIGTERM 2>/dev/null || true`], { capture: true, stream: false });
     await new Promise((r) => setTimeout(r, 1000));
+  } else {
+    console.log("No existing anvil found.");
   }
   // Remove stale devnet JSON so we don't race with the background deploy.
   // forge script writes it during simulation (before broadcast), so an
   // old file would make ensureContractsDeployed return prematurely.
+  console.log("Removing stale devnet.json...");
   fs.rmSync(devnetJson, { force: true });
+  console.log("Starting local-devnet.sh (forking mainnet)...");
   spawn("./script/local-devnet.sh", [], {
     cwd: contractsDir,
     env: { ...process.env, ANVIL_PORT: anvilPort },
     stdio: "inherit"
   }).unref();
 
-  const rpcReady = await waitForRpc(15000);
+  console.log(`Waiting for RPC at ${rpcUrl}...`);
+  const rpcReady = await waitForRpc(30000);
   if (!rpcReady) {
     throw new Error(`RPC not ready at ${rpcUrl}`);
   }
+  console.log("RPC is ready.");
 
   logSection("Check IPFS");
+  console.log(`Checking IPFS at ${ipfsApi}...`);
   const ipfsReady = await waitForIpfs(8000);
   if (!ipfsReady) {
     throw new Error(`IPFS not ready at ${ipfsApi}. Start with docker compose.`);
   }
+  console.log("IPFS is ready.");
 
   const mnemonic = process.env.MNEMONIC ?? "test test test test test test test test test test test junk";
   const devAccount = mnemonicToAccount(mnemonic);
@@ -142,10 +155,20 @@ async function main() {
   });
 
   logSection("Wait for contracts");
-  const deployTimeout = 60000;
+  console.log("Waiting for VibeFi contracts to be deployed...");
+  const deployTimeout = 120000; // Increased for mainnet fork
   const deployStart = Date.now();
+  let lastLog = 0;
   while (Date.now() - deployStart < deployTimeout) {
-    if (await ensureContractsDeployed()) break;
+    if (await ensureContractsDeployed()) {
+      console.log("Contracts deployed successfully.");
+      break;
+    }
+    const elapsed = Date.now() - deployStart;
+    if (elapsed - lastLog > 5000) {
+      console.log(`Still waiting for contracts... (${Math.round(elapsed / 1000)}s elapsed)`);
+      lastLog = elapsed;
+    }
     await new Promise((r) => setTimeout(r, 500));
   }
   if (!(await ensureContractsDeployed())) {
@@ -153,13 +176,18 @@ async function main() {
   }
 
   logSection("Send sanity tx via viem");
+  console.log("Sending sanity transaction...");
   const sanityTxHash = await walletClient.sendTransaction({
     to: devAccount.address,
     value: 0n
   });
+  console.log(`Sanity tx hash: ${sanityTxHash}`);
+  console.log("Waiting for receipt...");
   await publicClient.waitForTransactionReceipt({ hash: sanityTxHash });
+  console.log("Sanity tx confirmed.");
 
   logSection("CLI status");
+  console.log("Running: vibefi status...");
   let result = await runCmd(
     "bun",
     ["run", "src/index.ts", "status", "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
@@ -168,6 +196,7 @@ async function main() {
   if (result.code !== 0) throw new Error("status failed");
 
   logSection("List proposals");
+  console.log("Running: vibefi proposals:list...");
   result = await runCmd(
     "bun",
     ["run", "src/index.ts", "proposals:list", "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
@@ -177,7 +206,7 @@ async function main() {
 
   logSection("Package dapp");
   const dappDir = path.join(repoRoot, "dapp-examples", "uniswap-v2-example");
-
+  console.log(`Running: vibefi package (${dappDir})...`);
   result = await runCmd(
     "bun",
     [
@@ -204,6 +233,7 @@ async function main() {
 
   logSection("Propose dapp");
   const proposalDescription = `E2E proposal ${Date.now()}`;
+  console.log(`Running: vibefi dapp:propose (rootCid=${packageJson.rootCid})...`);
   result = await runCmd(
     "bun",
     [
@@ -233,14 +263,19 @@ async function main() {
   if (!proposeJson.txHash) throw new Error("Missing txHash from dapp:propose");
 
   logSection("Mine block");
+  console.log("Mining 1 block...");
   await publicClient.request({ method: "anvil_mine", params: [1] });
+  console.log("Block mined.");
 
   logSection("Fetch proposal id");
+  console.log("Reading devnet config...");
   const devnet = JSON.parse(fs.readFileSync(devnetJson, "utf-8")) as DevnetConfig;
+  console.log(`Waiting for tx receipt: ${proposeJson.txHash}...`);
   const receipt = await publicClient.waitForTransactionReceipt({
     hash: proposeJson.txHash as Hex,
-    timeout: 15000
+    timeout: 30000
   });
+  console.log("Receipt received.");
   const governorAddress = devnet.vfiGovernor.toLowerCase();
   const proposalLog = (receipt.logs ?? []).find((log) => log.address.toLowerCase() === governorAddress);
   if (!proposalLog) throw new Error("ProposalCreated log not found in receipt");
@@ -253,17 +288,22 @@ async function main() {
   console.log(`Using proposalId=${proposalId}`);
 
   logSection("Cast vote");
+  console.log(`Running: vibefi vote:cast ${proposalId} --support for...`);
   result = await runCmd(
     "bun",
     ["run", "src/index.ts", "vote:cast", proposalId, "--support", "for", "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
     { cwd: cliDir, capture: true }
   );
   if (result.code !== 0) throw new Error("vote:cast failed");
+  console.log("Vote cast.");
 
   logSection("Mine blocks for voting period");
+  console.log("Mining 25 blocks for voting period...");
   await publicClient.request({ method: "anvil_mine", params: [25] });
+  console.log("Blocks mined.");
 
   logSection("Vote status");
+  console.log(`Running: vibefi vote:status ${proposalId}...`);
   result = await runCmd(
     "bun",
     ["run", "src/index.ts", "vote:status", proposalId, "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
@@ -272,6 +312,7 @@ async function main() {
   if (result.code !== 0) throw new Error("vote:status failed");
 
   logSection("Queue proposal");
+  console.log(`Running: vibefi proposals:queue ${proposalId}...`);
   result = await runCmd(
     "bun",
     ["run", "src/index.ts", "proposals:queue", proposalId, "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
@@ -280,12 +321,17 @@ async function main() {
   if (result.code !== 0) throw new Error("proposals:queue failed");
   const queueJson = JSON.parse(result.stdout || "{}") as { txHash?: string };
   if (!queueJson.txHash) throw new Error("Missing txHash from proposals:queue");
+  console.log("Proposal queued.");
 
   logSection("Advance timelock");
+  console.log("Increasing time by 2 seconds...");
   await publicClient.request({ method: "evm_increaseTime", params: [2] });
+  console.log("Mining 1 block...");
   await publicClient.request({ method: "anvil_mine", params: [1] });
+  console.log("Timelock advanced.");
 
   logSection("Execute proposal");
+  console.log(`Running: vibefi proposals:execute ${proposalId}...`);
   result = await runCmd(
     "bun",
     ["run", "src/index.ts", "proposals:execute", proposalId, "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
@@ -294,8 +340,10 @@ async function main() {
   if (result.code !== 0) throw new Error("proposals:execute failed");
   const executeJson = JSON.parse(result.stdout || "{}") as { txHash?: string };
   if (!executeJson.txHash) throw new Error("Missing txHash from proposals:execute");
+  console.log("Proposal executed.");
 
   logSection("Dapp list");
+  console.log("Running: vibefi dapp:list...");
   result = await runCmd(
     "bun",
     ["run", "src/index.ts", "dapp:list", "--rpc", rpcUrl, "--devnet", devnetJson, "--json"],
@@ -305,8 +353,10 @@ async function main() {
   const dappList = JSON.parse(result.stdout || "[]") as Array<{ rootCid?: string }>;
   const latest = dappList[dappList.length - 1];
   if (!latest?.rootCid) throw new Error("Missing rootCid from dapp:list");
+  console.log(`Found ${dappList.length} dapp(s). Latest rootCid: ${latest.rootCid}`);
 
   logSection("Fetch dapp bundle");
+  console.log(`Running: vibefi dapp:fetch --root-cid ${latest.rootCid}...`);
   result = await runCmd(
     "bun",
     [
@@ -326,6 +376,7 @@ async function main() {
     { cwd: cliDir, capture: true }
   );
   if (result.code !== 0) throw new Error("dapp:fetch failed");
+  console.log("Dapp bundle fetched and verified.");
 
   console.log(`\nAnvil left running on :${anvilPort}`);
   console.log("E2E test completed successfully.");
