@@ -63,6 +63,7 @@ export function resolveDevnetJson(network: NetworkConfig): string | undefined {
 
 export type DevnetJson = {
   chainId: number;
+  deployBlock?: number;
   vfiToken: string;
   vfiGovernor: string;
   vfiTimelock: string;
@@ -104,4 +105,12 @@ export function resolveContracts(network: NetworkConfig, devnet?: DevnetJson): C
 
 export function resolveChainId(network: NetworkConfig, devnet?: DevnetJson): number | undefined {
   return devnet?.chainId ?? network.chainId;
+}
+
+export function resolveFromBlock(fromBlockOption: string, devnet?: DevnetJson): string {
+  // If explicitly set to something other than "0", use that
+  if (fromBlockOption !== "0") return fromBlockOption;
+  // Otherwise use deployBlock from devnet config if available
+  if (devnet?.deployBlock !== undefined) return devnet.deployBlock.toString();
+  return "0";
 }

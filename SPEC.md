@@ -10,9 +10,9 @@ This document describes CLI design and behavior (data flow, config, and contract
 
 ## Non-Goals (initial scope)
 
-- IPFS packaging/publishing of dapp bundles.
-- Full governance lifecycle automation (queue/execute).
+- IPFS publishing/pinning of dapp bundles.
 - Rich indexing or caching layer beyond on-demand log reads.
+- Chain control commands (mining/time travel). Use external tools instead.
 
 ## Configuration
 
@@ -50,6 +50,14 @@ This document describes CLI design and behavior (data flow, config, and contract
   - Reads `ProposalCreated` logs from `VfiGovernor` and queries `state()` per proposal.
 - `vibefi proposals:show <id>`
   - Finds the proposal log, reads `proposalSnapshot` and `proposalDeadline`, prints targets + calldata.
+- `vibefi proposals:queue <id>`
+  - Finds the proposal log and calls `VfiGovernor.queue` using the original targets/values/calldatas +
+    `keccak256(description)`.
+  - Warns (non-blocking) if the proposal state is not `Succeeded`.
+- `vibefi proposals:execute <id>`
+  - Finds the proposal log and calls `VfiGovernor.execute` using the original targets/values/calldatas +
+    `keccak256(description)`.
+  - Warns (non-blocking) if the proposal state is not `Queued`.
 
 ### Propose Dapp
 
@@ -84,9 +92,31 @@ This document describes CLI design and behavior (data flow, config, and contract
   - Combines logs in block/logIndex order to compute the latest version per `dappId`.
   - Outputs: `dappId`, latest `versionId`, `name`, `version`, `description`, `status`, `rootCid`.
 
+### Dapp Fetch
+
+- `vibefi dapp:fetch --root-cid <cid>`
+  - Downloads `manifest.json` and bundle files from an IPFS gateway.
+  - Computes the bundle CID locally via `ipfs add --only-hash` and verifies it matches.
+  - Output includes `outDir` and verification status.
+
+### Package Dapp
+
+- `vibefi package`
+  - Use `--dapp-version` (not `--version`) to avoid conflicting with CLI version flag.
+  - Validates a local React dapp bundle and outputs a deterministic `rootCid`.
+  - Publishes the bundle to IPFS by default (uses `http://127.0.0.1:5001`).
+  - `--no-ipfs` skips publish and returns a deterministic hash of the manifest.
+  - `--ipfs-api` overrides the IPFS API URL.
+  - Validates top-level structure: `src/`, `assets/`, `abis/`, `addresses.json`, `index.html`, `package.json`.
+  - Enforces dependency allowlist + exact versions.
+  - Rejects forbidden patterns (HTTP, fetch/XHR/WebSocket, dynamic HTTP imports).
+  - Generates a `manifest.json` with file hashes and metadata.
+  - Emits a bundle directory that can be proposed via `dapp:propose`.
+
 ## Contract Interactions
 
-- `VfiGovernor` functions: `propose`, `state`, `proposalSnapshot`, `proposalDeadline`, `proposalVotes`, `quorum`, `castVote`, `castVoteWithReason`, `vetoProposal`.
+- `VfiGovernor` functions: `propose`, `queue`, `execute`, `state`, `proposalSnapshot`, `proposalDeadline`,
+  `proposalVotes`, `quorum`, `castVote`, `castVoteWithReason`, `vetoProposal`.
 - `DappRegistry` functions: `publishDapp`, `pauseDappVersion`, `unpauseDappVersion`, `deprecateDappVersion`.
 
 ## ABI Management

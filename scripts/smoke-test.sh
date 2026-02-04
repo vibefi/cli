@@ -18,6 +18,10 @@ if ! command -v cast >/dev/null 2>&1; then
   exit 1
 fi
 
+# Remove stale devnet JSON so the wait loop below actually waits for
+# the fresh deploy rather than exiting on a leftover file.
+rm -f "$DEVNET_JSON"
+
 # Start devnet in background
 (
   cd "$CONTRACTS_DIR"
@@ -46,6 +50,18 @@ fi
 # Ensure RPC is ready
 for _ in {1..80}; do
   if cast chain-id --rpc-url "$RPC_URL" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.25
+done
+
+# Wait for governor contract to actually be deployed on-chain.
+# forge script writes devnet.json during simulation (before broadcast),
+# so the file can exist before contracts are live.
+GOVERNOR=$(bun -e "console.log(JSON.parse(require('fs').readFileSync('$DEVNET_JSON','utf8')).vfiGovernor)")
+for _ in {1..80}; do
+  CODE=$(cast code "$GOVERNOR" --rpc-url "$RPC_URL" 2>/dev/null || true)
+  if [ -n "$CODE" ] && [ "$CODE" != "0x" ]; then
     break
   fi
   sleep 0.25

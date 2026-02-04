@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
+import path from "node:path";
 import {
   bytesToHex,
   decodeEventLog,
   encodeFunctionData,
   formatUnits,
   getAddress,
+  hexToString,
   isHex,
   keccak256,
   toBytes,
@@ -23,6 +25,7 @@ import {
   proposalCreatedEvent,
   vfiTokenAbi
 } from "./abi";
+import { packageDapp } from "./package";
 import {
   ensureConfig,
   getConfigPath,
@@ -30,10 +33,12 @@ import {
   resolveChainId,
   resolveContracts,
   resolveDevnetJson,
+  resolveFromBlock,
   resolveNetwork,
   resolveRpcUrl
 } from "./config";
 import { getPublicClient, getWalletClient, resolvePrivateKey } from "./clients";
+import { computeIpfsCid, downloadDappBundle, fetchDappManifest } from "./ipfs";
 
 const program = new Command();
 
@@ -121,9 +126,14 @@ function toJson(value: unknown) {
   );
 }
 
-type DecodedLog =
-  | { address: string; contract: string; event: string; args: unknown }
-  | { address: string; event: "Unknown"; data: Hex; topics: Hex[] };
+type DecodedLog = {
+  address: string;
+  event: string;
+  contract?: string;
+  args?: unknown;
+  data?: Hex;
+  topics?: Hex[];
+};
 
 async function fetchTxLogs(
   ctx: ReturnType<typeof loadContext>,
@@ -143,7 +153,7 @@ async function fetchTxLogs(
           abi: governorAbi,
           data: log.data,
           topics: log.topics
-        });
+        }) as { eventName: string; args: unknown };
         return { address: log.address, contract: "VfiGovernor", event: decoded.eventName, args: decoded.args };
       } catch {
         // fallthrough
@@ -156,7 +166,7 @@ async function fetchTxLogs(
           abi: dappRegistryAbi,
           data: log.data,
           topics: log.topics
-        });
+        }) as { eventName: string; args: unknown };
         return { address: log.address, contract: "DappRegistry", event: decoded.eventName, args: decoded.args };
       } catch {
         // fallthrough
@@ -169,7 +179,7 @@ async function fetchTxLogs(
           abi: vfiTokenAbi,
           data: log.data,
           topics: log.topics
-        });
+        }) as { eventName: string; args: unknown };
         return { address: log.address, contract: "VfiToken", event: decoded.eventName, args: decoded.args };
       } catch {
         // fallthrough
@@ -234,11 +244,36 @@ type DappLogArgs = {
   reason?: string;
 };
 
-function requireArgs<T>(log: { args?: unknown }, label: string): T {
-  if (!log.args) {
+function requireArgs<T>(log: { args?: T } | undefined, label: string): T {
+  if (!log?.args) {
     throw new Error(`Missing log args for ${label}`);
   }
   return log.args as T;
+}
+
+async function getProposalCreatedArgs(
+  ctx: ReturnType<typeof loadContext>,
+  proposalId: string,
+  fromBlock: bigint,
+  toBlock?: bigint
+) {
+  const governor = ctx.contracts.vfiGovernor;
+  if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
+
+  const logs = await ctx.publicClient.getLogs({
+    address: governor as Hex,
+    event: proposalCreatedEvent as any,
+    fromBlock,
+    toBlock: toBlock ?? "latest"
+  });
+
+  const target = (logs as any[]).find((log) => {
+    const args = log.args as ProposalCreatedArgs | undefined;
+    return args?.proposalId?.toString() === proposalId;
+  });
+  if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
+
+  return requireArgs<ProposalCreatedArgs>(target as { args?: ProposalCreatedArgs }, "ProposalCreated");
 }
 
 function encodeRootCid(input: string): Hex {
@@ -263,6 +298,48 @@ function encodeRootCid(input: string): Hex {
 }
 
 program.name("vibefi").description("VibeFi CLI").version("0.1.0");
+
+program
+  .command("package")
+  .description("Package a local dapp into a deterministic bundle")
+  .requiredOption("--name <name>", "Dapp name")
+  .requiredOption("--dapp-version <version>", "Dapp version string")
+  .requiredOption("--description <text>", "Dapp description")
+  .option("--path <dir>", "Path to dapp directory", ".")
+  .option("--out <dir>", "Output directory for bundle")
+  .option("--constraints <path>", "Path to constraints JSON override")
+  .option("--ipfs-api <url>", "IPFS API URL", "http://127.0.0.1:5001")
+  .option("--no-ipfs", "Skip IPFS publish and return a deterministic hash")
+  .option("--no-emit-manifest", "Do not write manifest.json to output")
+  .option("--json", "Output JSON")
+  .action(async (options) => {
+    const result = await packageDapp({
+      path: options.path,
+      outDir: options.out,
+      name: options.name,
+      version: options.dappVersion,
+      description: options.description,
+      constraintsPath: options.constraints,
+      emitManifest: options.emitManifest,
+      ipfs: options.ipfs,
+      ipfsApi: options.ipfsApi
+    });
+
+    const output = {
+      rootCid: result.rootCid,
+      outDir: result.outDir,
+      manifest: result.manifest,
+      ipfsApi: result.ipfsApi
+    };
+
+    if (options.json) {
+      console.log(toJson(output));
+      return;
+    }
+
+    console.log(`rootCid: ${result.rootCid}`);
+    console.log(`bundle: ${result.outDir}`);
+  });
 
 withCommonOptions(
   program
@@ -317,26 +394,26 @@ withCommonOptions(
   const governor = ctx.contracts.vfiGovernor;
   if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
 
-  const fromBlock = BigInt(options.fromBlock);
+  const fromBlock = BigInt(resolveFromBlock(options.fromBlock, ctx.devnet));
   const toBlock = options.toBlock ? BigInt(options.toBlock) : undefined;
 
   const logs = await ctx.publicClient.getLogs({
     address: governor as Hex,
-    event: proposalCreatedEvent,
+    event: proposalCreatedEvent as any,
     fromBlock,
     toBlock: toBlock ?? "latest"
   });
 
   const proposals = await Promise.all(
-    logs.map(async (log) => {
-      const args = requireArgs<ProposalCreatedArgs>(log, "ProposalCreated");
+    (logs as any[]).map(async (log) => {
+      const args = requireArgs<ProposalCreatedArgs>(log as { args?: ProposalCreatedArgs }, "ProposalCreated");
       const proposalId = args.proposalId;
       const state = await ctx.publicClient.readContract({
         address: governor as Hex,
         abi: governorAbi,
         functionName: "state",
         args: [proposalId]
-      });
+      }) as bigint;
       return {
         proposalId: proposalId.toString(),
         proposer: getAddress(args.proposer),
@@ -376,40 +453,32 @@ withCommonOptions(
   const governor = ctx.contracts.vfiGovernor;
   if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
 
-  const proposalLogs = await ctx.publicClient.getLogs({
-    address: governor as Hex,
-    event: proposalCreatedEvent,
-    fromBlock: BigInt(options.fromBlock),
-    toBlock: options.toBlock ? BigInt(options.toBlock) : "latest"
-  });
-
-  const target = proposalLogs.find((log) => {
-    const args = log.args as ProposalCreatedArgs | undefined;
-    return args?.proposalId?.toString() === proposalId;
-  });
-  if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
-
-  const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
+  const args = await getProposalCreatedArgs(
+    ctx,
+    proposalId,
+    BigInt(resolveFromBlock(options.fromBlock, ctx.devnet)),
+    options.toBlock ? BigInt(options.toBlock) : undefined
+  );
   const state = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "state",
     args: [BigInt(proposalId)]
-  });
+  }) as bigint;
 
   const snapshot = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "proposalSnapshot",
     args: [BigInt(proposalId)]
-  });
+  }) as bigint;
 
   const deadline = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "proposalDeadline",
     args: [BigInt(proposalId)]
-  });
+  }) as bigint;
 
   const output = {
     proposalId,
@@ -439,6 +508,116 @@ withCommonOptions(
   console.log(`Targets: ${output.targets.join(", ")}`);
   console.log(`Values: ${output.values.join(", ")}`);
   console.log(`Calldatas: ${output.calldatas.join(", ")}`);
+});
+
+withCommonOptions(
+  program
+    .command("proposals:queue")
+    .description("Queue a governance proposal")
+    .argument("<proposalId>", "Proposal id")
+    .option("--from-block <number>", "Start block", "0")
+    .option("--to-block <number>", "End block")
+).action(async (proposalId, options) => {
+  const ctx = loadContext(options);
+  const governor = ctx.contracts.vfiGovernor;
+  if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
+
+  const args = await getProposalCreatedArgs(
+    ctx,
+    proposalId,
+    BigInt(resolveFromBlock(options.fromBlock, ctx.devnet)),
+    options.toBlock ? BigInt(options.toBlock) : undefined
+  );
+  const descriptionHash = keccak256(toBytes(args.description as string));
+
+  let warning: string | undefined;
+  try {
+    const state = await ctx.publicClient.readContract({
+      address: governor as Hex,
+      abi: governorAbi,
+      functionName: "state",
+      args: [BigInt(proposalId)]
+    }) as bigint;
+    const stateName = proposalStateNames[Number(state)] ?? String(state);
+    if (stateName !== "Succeeded") {
+      warning = `Proposal state is ${stateName}, expected Succeeded.`;
+    }
+  } catch {
+    warning = "Failed to read proposal state.";
+  }
+
+  const wallet = getWalletContext(ctx, options);
+  const hash = await wallet.walletClient.writeContract({
+    address: governor as Hex,
+    abi: governorAbi,
+    functionName: "queue",
+    args: [args.targets, args.values, args.calldatas, descriptionHash]
+  });
+
+  const logs = await fetchTxLogs(ctx, hash);
+  if (options.json) {
+    console.log(toJson({ txHash: hash, logs, warning }));
+    return;
+  }
+  if (warning) console.warn(`Warning: ${warning}`);
+  console.log(`Proposal queued: ${hash}`);
+  printDecodedLogs("proposals:queue", hash, logs);
+});
+
+withCommonOptions(
+  program
+    .command("proposals:execute")
+    .description("Execute a queued governance proposal")
+    .argument("<proposalId>", "Proposal id")
+    .option("--from-block <number>", "Start block", "0")
+    .option("--to-block <number>", "End block")
+).action(async (proposalId, options) => {
+  const ctx = loadContext(options);
+  const governor = ctx.contracts.vfiGovernor;
+  if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
+
+  const args = await getProposalCreatedArgs(
+    ctx,
+    proposalId,
+    BigInt(resolveFromBlock(options.fromBlock, ctx.devnet)),
+    options.toBlock ? BigInt(options.toBlock) : undefined
+  );
+  const descriptionHash = keccak256(toBytes(args.description as string));
+
+  let warning: string | undefined;
+  try {
+    const state = await ctx.publicClient.readContract({
+      address: governor as Hex,
+      abi: governorAbi,
+      functionName: "state",
+      args: [BigInt(proposalId)]
+    }) as bigint;
+    const stateName = proposalStateNames[Number(state)] ?? String(state);
+    if (stateName !== "Queued") {
+      warning = `Proposal state is ${stateName}, expected Queued.`;
+    }
+  } catch {
+    warning = "Failed to read proposal state.";
+  }
+
+  const totalValue = args.values.reduce((acc, value) => acc + value, 0n);
+  const wallet = getWalletContext(ctx, options);
+  const hash = await wallet.walletClient.writeContract({
+    address: governor as Hex,
+    abi: governorAbi,
+    functionName: "execute",
+    args: [args.targets, args.values, args.calldatas, descriptionHash],
+    ...(totalValue > 0n ? { value: totalValue } : {})
+  });
+
+  const logs = await fetchTxLogs(ctx, hash);
+  if (options.json) {
+    console.log(toJson({ txHash: hash, logs, warning }));
+    return;
+  }
+  if (warning) console.warn(`Warning: ${warning}`);
+  console.log(`Proposal executed: ${hash}`);
+  printDecodedLogs("proposals:execute", hash, logs);
 });
 
 withCommonOptions(
@@ -543,21 +722,21 @@ withCommonOptions(
     abi: governorAbi,
     functionName: "proposalSnapshot",
     args: [BigInt(proposalId)]
-  });
+  }) as bigint;
 
   const votes = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "proposalVotes",
     args: [BigInt(proposalId)]
-  });
+  }) as readonly [bigint, bigint, bigint];
 
   const quorum = await ctx.publicClient.readContract({
     address: governor as Hex,
     abi: governorAbi,
     functionName: "quorum",
     args: [snapshot]
-  });
+  }) as bigint;
 
   let decimals = 18;
   if (ctx.contracts.vfiToken) {
@@ -606,21 +785,12 @@ withCommonOptions(
   const ctx = loadContext(options);
   const governor = ctx.contracts.vfiGovernor;
   if (!governor) throw new Error("Missing vfiGovernor address in config/devnet.");
-
-  const proposalLogs = await ctx.publicClient.getLogs({
-    address: governor as Hex,
-    event: proposalCreatedEvent,
-    fromBlock: BigInt(options.fromBlock),
-    toBlock: options.toBlock ? BigInt(options.toBlock) : "latest"
-  });
-
-  const target = proposalLogs.find((log) => {
-    const args = log.args as ProposalCreatedArgs | undefined;
-    return args?.proposalId?.toString() === proposalId;
-  });
-  if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
-
-  const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
+  const args = await getProposalCreatedArgs(
+    ctx,
+    proposalId,
+    BigInt(resolveFromBlock(options.fromBlock, ctx.devnet)),
+    options.toBlock ? BigInt(options.toBlock) : undefined
+  );
   const descriptionHash = keccak256(toBytes(args.description as string));
 
   const wallet = getWalletContext(ctx, options);
@@ -686,16 +856,16 @@ withCommonOptions(
   const dappRegistry = ctx.contracts.dappRegistry;
   if (!dappRegistry) throw new Error("Missing dappRegistry address in config/devnet.");
 
-  const fromBlock = BigInt(options.fromBlock);
+  const fromBlock = BigInt(resolveFromBlock(options.fromBlock, ctx.devnet));
   const toBlock = options.toBlock ? BigInt(options.toBlock) : "latest";
 
   const [published, upgraded, metadata, paused, unpaused, deprecated] = await Promise.all([
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappPublishedEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappUpgradedEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappMetadataEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappPausedEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappUnpausedEvent, fromBlock, toBlock }),
-    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappDeprecatedEvent, fromBlock, toBlock })
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappPublishedEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappUpgradedEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappMetadataEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappPausedEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappUnpausedEvent as any, fromBlock, toBlock }),
+    ctx.publicClient.getLogs({ address: dappRegistry as Hex, event: dappDeprecatedEvent as any, fromBlock, toBlock })
   ]);
 
   const allLogs = [...published, ...upgraded, ...metadata, ...paused, ...unpaused, ...deprecated].sort(
@@ -732,20 +902,20 @@ withCommonOptions(
     return { dapp, version };
   };
 
-  for (const log of allLogs) {
-    const args = requireArgs<DappLogArgs>(log, log.eventName ?? "DappEvent");
+  for (const log of allLogs as any[]) {
+    const args = requireArgs<DappLogArgs>(log as { args?: DappLogArgs }, log.eventName ?? "DappEvent");
     if (log.eventName === "DappPublished") {
       const dappId = args.dappId;
       const versionId = args.versionId ?? 0n;
       const { dapp, version } = getVersion(dappId, versionId);
-      version.rootCid = args.rootCid as string;
+      version.rootCid = new TextDecoder().decode(toBytes(args.rootCid as Hex));
       version.status = "Published";
       dapp.latestVersionId = versionId;
     } else if (log.eventName === "DappUpgraded") {
       const dappId = args.dappId;
       const versionId = args.toVersionId ?? 0n;
       const { dapp, version } = getVersion(dappId, versionId);
-      version.rootCid = args.rootCid as string;
+      version.rootCid = new TextDecoder().decode(toBytes(args.rootCid as Hex));
       version.status = "Published";
       dapp.latestVersionId = versionId;
     } else if (log.eventName === "DappMetadata") {
@@ -789,6 +959,52 @@ withCommonOptions(
     if (dapp.description) console.log(`  ${dapp.description}`);
   }
 });
+
+program
+  .command("dapp:fetch")
+  .description("Download a published dapp bundle from IPFS")
+  .requiredOption("--root-cid <cid>", "Root CID")
+  .option("--out <dir>", "Output directory", ".vibefi/cache")
+  .option("--ipfs-api <url>", "IPFS API URL", "http://127.0.0.1:5001")
+  .option("--ipfs-gateway <url>", "IPFS gateway URL", "http://127.0.0.1:8080")
+  .option("--no-verify", "Skip CID verification")
+  .option("--json", "Output JSON")
+  .action(async (options) => {
+    const inputRootCid = options.rootCid as string;
+    const decodedRootCid = isHex(inputRootCid)
+      ? hexToString(inputRootCid as Hex).replace(/\0+$/g, "")
+      : inputRootCid;
+    const outDir = path.resolve(options.out);
+    const manifest = await fetchDappManifest(decodedRootCid, options.ipfsGateway);
+    await downloadDappBundle(decodedRootCid, outDir, options.ipfsGateway, manifest);
+
+    let computedCid: string | undefined;
+    let verified: boolean | undefined;
+    if (options.verify !== false) {
+      computedCid = await computeIpfsCid(outDir, options.ipfsApi);
+      verified = computedCid === decodedRootCid;
+      if (!verified) {
+        throw new Error(`CID mismatch: expected ${decodedRootCid} got ${computedCid}`);
+      }
+    }
+
+    const output = {
+      rootCid: decodedRootCid,
+      outDir,
+      ipfsApi: options.ipfsApi,
+      ipfsGateway: options.ipfsGateway,
+      verified,
+      computedCid
+    };
+    if (options.json) {
+      console.log(toJson(output));
+      return;
+    }
+    console.log(`Fetched ${options.rootCid} to ${outDir}`);
+    if (verified) {
+      console.log(`Verified CID: ${computedCid}`);
+    }
+  });
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err.message ?? err);
