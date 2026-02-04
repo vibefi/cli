@@ -106,7 +106,10 @@ function walkFiles(root: string): string[] {
   const entries = fs.readdirSync(root, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
-    if (entry.name.startsWith(".") || entry.name === "node_modules") {
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
+    if (entry.name === "node_modules" || entry.name === ".git") {
       continue;
     }
     const fullPath = path.join(root, entry.name);

@@ -7,6 +7,7 @@ import {
   encodeFunctionData,
   formatUnits,
   getAddress,
+  hexToString,
   isHex,
   keccak256,
   toBytes,
@@ -968,27 +969,26 @@ program
   .option("--no-verify", "Skip CID verification")
   .option("--json", "Output JSON")
   .action(async (options) => {
+    const inputRootCid = options.rootCid as string;
+    const decodedRootCid = isHex(inputRootCid)
+      ? hexToString(inputRootCid as Hex).replace(/\0+$/g, "")
+      : inputRootCid;
     const outDir = path.resolve(options.out);
-    // rootCid may arrive as on-chain hex bytes (e.g. from dapp:list).
-    // Decode back to the original CID string for IPFS gateway requests.
-    const cidForIpfs = isHex(options.rootCid)
-      ? new TextDecoder().decode(toBytes(options.rootCid as Hex))
-      : (options.rootCid as string);
-    const manifest = await fetchDappManifest(cidForIpfs, options.ipfsGateway);
-    await downloadDappBundle(cidForIpfs, outDir, options.ipfsGateway, manifest);
+    const manifest = await fetchDappManifest(decodedRootCid, options.ipfsGateway);
+    await downloadDappBundle(decodedRootCid, outDir, options.ipfsGateway, manifest);
 
     let computedCid: string | undefined;
     let verified: boolean | undefined;
     if (options.verify !== false) {
       computedCid = await computeIpfsCid(outDir, options.ipfsApi);
-      verified = computedCid === cidForIpfs;
+      verified = computedCid === decodedRootCid;
       if (!verified) {
-        throw new Error(`CID mismatch: expected ${cidForIpfs} got ${computedCid}`);
+        throw new Error(`CID mismatch: expected ${decodedRootCid} got ${computedCid}`);
       }
     }
 
     const output = {
-      rootCid: options.rootCid,
+      rootCid: decodedRootCid,
       outDir,
       ipfsApi: options.ipfsApi,
       ipfsGateway: options.ipfsGateway,

@@ -77,6 +77,13 @@ streaming stdout to the console.
 ANVIL_PORT=8546 bun run test:e2e
 ```
 
+The e2e requires a local IPFS node running at `http://127.0.0.1:5001`
+(gateway at `http://127.0.0.1:8080`). Start it from the repo root:
+
+```bash
+docker compose -f docker-compose.ipfs.yml up -d
+```
+
 ## Package workflow
 
 The `package` command validates a local dapp bundle and produces a deterministic
