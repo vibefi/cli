@@ -15,12 +15,40 @@ import governorAbi from "../src/abis/VfiGovernor.json";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const contractsDir = path.join(repoRoot, "contracts");
 const cliDir = path.join(repoRoot, "cli");
+const dotenvPaths = [path.join(repoRoot, ".env"), path.join(cliDir, ".env")];
+
+function loadDotenv(paths: string[]) {
+  for (const dotenvPath of paths) {
+    if (!fs.existsSync(dotenvPath)) continue;
+    const contents = fs.readFileSync(dotenvPath, "utf-8");
+    for (const rawLine of contents.split("\n")) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const eqIndex = line.indexOf("=");
+      if (eqIndex === -1) continue;
+      const key = line.slice(0, eqIndex).trim();
+      let value = line.slice(eqIndex + 1).trim();
+      if (
+        (value.startsWith("\"") && value.endsWith("\"")) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      if (!(key in process.env)) {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+loadDotenv(dotenvPaths);
 const devnetJson = path.join(contractsDir, ".devnet", "devnet.json");
 const ipfsApi = process.env.IPFS_API ?? "http://127.0.0.1:5001";
 const ipfsGateway = process.env.IPFS_GATEWAY ?? "http://127.0.0.1:8080";
 const anvilPort = process.env.ANVIL_PORT ?? "8546";
 const rpcUrl = `http://127.0.0.1:${anvilPort}`;
 const publicClient = createPublicClient({ transport: http(rpcUrl) });
+const forkUrl = process.env.MAINNET_FORK_URL ?? "";
 
 type DevnetConfig = {
   vfiGovernor: string;
@@ -128,7 +156,7 @@ async function main() {
   console.log("Starting local-devnet.sh (forking mainnet)...");
   spawn("./script/local-devnet.sh", [], {
     cwd: contractsDir,
-    env: { ...process.env, ANVIL_PORT: anvilPort },
+    env: { ...process.env, ANVIL_PORT: anvilPort, FORK_URL: forkUrl },
     stdio: "inherit"
   }).unref();
 

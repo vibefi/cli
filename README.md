@@ -77,6 +77,9 @@ streaming stdout to the console.
 ANVIL_PORT=8546 bun run test:e2e
 ```
 
+To run against a forked mainnet during the e2e flow, set `MAINNET_FORK_URL`
+in a `.env` file at the repo root or `cli/.env`.
+
 The e2e requires a local IPFS node running at `http://127.0.0.1:5001`
 (gateway at `http://127.0.0.1:8080`). Start it from the repo root:
 
