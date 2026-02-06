@@ -62,26 +62,23 @@ Common options:
 State-changing commands (propose/vote/queue/execute/council actions) print decoded logs by default.
 With `--json`, the output includes `txHash` and a `logs` array.
 
-## Smoke test
-
-```bash
-./scripts/smoke-test.sh
-```
-
 ## E2E test
 
-Runs a full devnet + CLI flow, sending a sanity transaction via viem and
-streaming stdout to the console.
+Runs a full devnet + CLI flow, sending a sanity transaction via viem.
 
-```bash
-ANVIL_PORT=8546 bun run test:e2e
-```
+E2E has been moved to the `vibefi-e2e` repo.
 
 The e2e requires a local IPFS node running at `http://127.0.0.1:5001`
 (gateway at `http://127.0.0.1:8080`). Start it from the repo root:
 
 ```bash
 docker compose -f docker-compose.ipfs.yml up -d
+```
+
+## Smoke test
+
+```bash
+bun run test:smoke
 ```
 
 ## Package workflow
