@@ -1,23 +1,20 @@
 import { Command } from "commander";
 import { getAddress, type Hex } from "viem";
-import { governorAbi } from "../abi";
+import { governorAbi } from "@vibefi/shared";
+import { getWalletContext, loadContext, toJson, withCommonOptions } from "./context";
+import { printTxResult } from "./output";
 import {
   buildVetoDescriptionHash,
   fetchProposalLogs,
-  fetchTxLogs,
+  findProposalByIdOrThrow,
   getGovernorAddress,
-  getWalletContext,
-  loadContext,
-  printDecodedLogs,
   proposalStateNames,
   readProposalDeadline,
   readProposalSnapshot,
   readProposalState,
   requireArgs,
-  toJson,
-  withCommonOptions,
   type ProposalCreatedArgs
-} from "./shared";
+} from "./governor";
 
 export function registerProposals(program: Command) {
   withCommonOptions(
@@ -83,18 +80,11 @@ export function registerProposals(program: Command) {
   ).action(async (proposalId, options) => {
     const ctx = loadContext(options);
 
-    const proposalLogs = await fetchProposalLogs(ctx, {
+    const args = await findProposalByIdOrThrow(ctx, proposalId, {
       fromBlock: options.fromBlock,
       toBlock: options.toBlock
     });
 
-    const target = proposalLogs.find((log) => {
-      const args = log.args as ProposalCreatedArgs | undefined;
-      return args?.proposalId?.toString() === proposalId;
-    });
-    if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
-
-    const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
     const state = await readProposalState(ctx, BigInt(proposalId));
     const snapshot = await readProposalSnapshot(ctx, BigInt(proposalId));
     const deadline = await readProposalDeadline(ctx, BigInt(proposalId));
@@ -140,18 +130,11 @@ export function registerProposals(program: Command) {
     const ctx = loadContext(options);
     const governor = getGovernorAddress(ctx);
 
-    const proposalLogs = await fetchProposalLogs(ctx, {
+    const args = await findProposalByIdOrThrow(ctx, proposalId, {
       fromBlock: options.fromBlock,
       toBlock: options.toBlock
     });
 
-    const target = proposalLogs.find((log) => {
-      const args = log.args as ProposalCreatedArgs | undefined;
-      return args?.proposalId?.toString() === proposalId;
-    });
-    if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
-
-    const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
     const descriptionHash = buildVetoDescriptionHash(args.description as string);
 
     const wallet = getWalletContext(ctx, options);
@@ -162,13 +145,7 @@ export function registerProposals(program: Command) {
       args: [args.targets, args.values, args.calldatas, descriptionHash]
     });
 
-    const logs = await fetchTxLogs(ctx, hash);
-    if (options.json) {
-      console.log(toJson({ txHash: hash, logs }));
-      return;
-    }
-    console.log(`Queue submitted: ${hash}`);
-    printDecodedLogs("proposals:queue", hash, logs);
+    await printTxResult("Queue submitted", ctx, hash, options.json);
   });
 
   withCommonOptions(
@@ -182,18 +159,11 @@ export function registerProposals(program: Command) {
     const ctx = loadContext(options);
     const governor = getGovernorAddress(ctx);
 
-    const proposalLogs = await fetchProposalLogs(ctx, {
+    const args = await findProposalByIdOrThrow(ctx, proposalId, {
       fromBlock: options.fromBlock,
       toBlock: options.toBlock
     });
 
-    const target = proposalLogs.find((log) => {
-      const args = log.args as ProposalCreatedArgs | undefined;
-      return args?.proposalId?.toString() === proposalId;
-    });
-    if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
-
-    const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
     const descriptionHash = buildVetoDescriptionHash(args.description as string);
 
     const wallet = getWalletContext(ctx, options);
@@ -204,12 +174,6 @@ export function registerProposals(program: Command) {
       args: [args.targets, args.values, args.calldatas, descriptionHash]
     });
 
-    const logs = await fetchTxLogs(ctx, hash);
-    if (options.json) {
-      console.log(toJson({ txHash: hash, logs }));
-      return;
-    }
-    console.log(`Execute submitted: ${hash}`);
-    printDecodedLogs("proposals:execute", hash, logs);
+    await printTxResult("Execute submitted", ctx, hash, options.json);
   });
 }

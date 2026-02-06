@@ -64,16 +64,22 @@ With `--json`, the output includes `txHash` and a `logs` array.
 
 ## E2E test
 
-Runs a full devnet + CLI flow, sending a sanity transaction via viem.
-
-E2E has been moved to the `vibefi-e2e` repo.
+E2E tests live in the `e2e/` submodule at the monorepo root. They run a full
+devnet + CLI flow including IPFS publish, governance, and bundle fetch.
 
 The e2e requires a local IPFS node running at `http://127.0.0.1:5001`
-(gateway at `http://127.0.0.1:8080`). Start it from the repo root:
+(gateway at `http://127.0.0.1:8080`). Start it from the monorepo root:
 
 ```bash
 docker compose -f docker-compose.ipfs.yml up -d
 ```
+
+See `e2e/README.md` for full instructions.
+
+## Shared utilities
+
+Common TypeScript utilities (ABI loading, devnet config, IPFS helpers) are in
+`packages/shared/` (`@vibefi/shared`). The CLI imports from this package.
 
 ## Smoke test
 

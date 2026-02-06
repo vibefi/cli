@@ -1,20 +1,15 @@
 import { Command } from "commander";
-import { type Hex } from "viem";
-import { governorAbi } from "../abi";
+import { formatUnits, type Hex } from "viem";
+import { governorAbi } from "@vibefi/shared";
+import { getWalletContext, loadContext, toJson, withCommonOptions } from "./context";
+import { printTxResult } from "./output";
 import {
-  fetchTxLogs,
-  formatUnitsSafe,
   getGovernorAddress,
-  getWalletContext,
-  loadContext,
-  printDecodedLogs,
   readProposalSnapshot,
   readProposalVotes,
-  readQuorum,
-  readTokenDecimals,
-  toJson,
-  withCommonOptions
-} from "./shared";
+  readQuorum
+} from "./governor";
+import { readTokenDecimals } from "./registry";
 
 export function registerVote(program: Command) {
   withCommonOptions(
@@ -48,13 +43,7 @@ export function registerVote(program: Command) {
           args
         });
 
-    const logs = await fetchTxLogs(ctx, hash);
-    if (options.json) {
-      console.log(toJson({ txHash: hash, logs }));
-      return;
-    }
-    console.log(`Vote submitted: ${hash}`);
-    printDecodedLogs("vote:cast", hash, logs);
+    await printTxResult("Vote submitted", ctx, hash, options.json);
   });
 
   withCommonOptions(
@@ -86,9 +75,9 @@ export function registerVote(program: Command) {
 
     console.log(`Proposal #${proposalId}`);
     console.log(`Snapshot: ${output.snapshot}`);
-    console.log(`Quorum: ${formatUnitsSafe(quorum, decimals)} VFI`);
-    console.log(`Against: ${formatUnitsSafe(votes[0], decimals)} VFI`);
-    console.log(`For: ${formatUnitsSafe(votes[1], decimals)} VFI`);
-    console.log(`Abstain: ${formatUnitsSafe(votes[2], decimals)} VFI`);
+    console.log(`Quorum: ${formatUnits(quorum, decimals)} VFI`);
+    console.log(`Against: ${formatUnits(votes[0], decimals)} VFI`);
+    console.log(`For: ${formatUnits(votes[1], decimals)} VFI`);
+    console.log(`Abstain: ${formatUnits(votes[2], decimals)} VFI`);
   });
 }

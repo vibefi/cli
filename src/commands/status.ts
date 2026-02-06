@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { type Hex } from "viem";
-import { getWalletClient, resolvePrivateKey } from "../clients";
-import { loadContext, roleHint, toJson, withCommonOptions } from "./shared";
+import { getWalletClient, resolvePrivateKey } from "@vibefi/shared";
+import { loadContext, roleHint, toJson, withCommonOptions } from "./context";
 
 export function registerStatus(program: Command) {
   withCommonOptions(
@@ -10,7 +10,7 @@ export function registerStatus(program: Command) {
       .description("Show network, contracts, and signer info")
   ).action(async (options) => {
     const ctx = loadContext(options);
-    const privateKey = resolvePrivateKey({}, ctx.devnet, options.pk);
+    const privateKey = resolvePrivateKey(ctx.devnet, options.pk);
     const walletClient = privateKey
       ? getWalletClient(ctx.rpcUrl, ctx.chainId, privateKey as Hex)
       : undefined;

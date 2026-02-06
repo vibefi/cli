@@ -1,23 +1,18 @@
 import path from "node:path";
 import { Command } from "commander";
 import { hexToString, isHex, type Hex } from "viem";
-import { governorAbi } from "../abi";
-import { computeIpfsCid, downloadDappBundle, fetchDappManifest } from "../ipfs";
+import { governorAbi, computeIpfsCid, downloadDappBundle, fetchDappManifest } from "@vibefi/shared";
+import { getWalletContext, loadContext, toJson, withCommonOptions } from "./context";
+import { printTxResult } from "./output";
+import { getGovernorAddress } from "./governor";
+import { requireArgs } from "./governor";
 import {
   encodeProposeCalldata,
   encodeRootCid,
   fetchDappLogs,
-  fetchTxLogs,
   getDappRegistryAddress,
-  getGovernorAddress,
-  getWalletContext,
-  loadContext,
-  printDecodedLogs,
-  requireArgs,
-  toJson,
-  withCommonOptions,
   type DappLogArgs
-} from "./shared";
+} from "./registry";
 
 export function registerDapp(program: Command) {
   withCommonOptions(
@@ -55,13 +50,7 @@ export function registerDapp(program: Command) {
       args: [[dappRegistry as Hex], [0n], [calldata], description]
     });
 
-    const logs = await fetchTxLogs(ctx, hash);
-    if (options.json) {
-      console.log(toJson({ txHash: hash, logs }));
-      return;
-    }
-    console.log(`Proposal submitted: ${hash}`);
-    printDecodedLogs("dapp:propose", hash, logs);
+    await printTxResult("Proposal submitted", ctx, hash, options.json);
   });
 
   withCommonOptions(
@@ -105,33 +94,34 @@ export function registerDapp(program: Command) {
     };
 
     for (const log of allLogs) {
-      const args = requireArgs<DappLogArgs>(log, log.eventName ?? "DappEvent");
-      if (log.eventName === "DappPublished") {
+      const evName = (log as unknown as { eventName?: string }).eventName ?? "DappEvent";
+      const args = requireArgs<DappLogArgs>(log, evName);
+      if (evName === "DappPublished") {
         const dappId = args.dappId;
         const versionId = args.versionId ?? 0n;
         const { dapp, version } = getVersion(dappId, versionId);
         version.rootCid = args.rootCid as string;
         version.status = "Published";
         dapp.latestVersionId = versionId;
-      } else if (log.eventName === "DappUpgraded") {
+      } else if (evName === "DappUpgraded") {
         const dappId = args.dappId;
         const versionId = args.toVersionId ?? 0n;
         const { dapp, version } = getVersion(dappId, versionId);
         version.rootCid = args.rootCid as string;
         version.status = "Published";
         dapp.latestVersionId = versionId;
-      } else if (log.eventName === "DappMetadata") {
+      } else if (evName === "DappMetadata") {
         const { version } = getVersion(args.dappId, args.versionId ?? 0n);
         version.name = args.name;
         version.version = args.version;
         version.description = args.description;
-      } else if (log.eventName === "DappPaused") {
+      } else if (evName === "DappPaused") {
         const { version } = getVersion(args.dappId, args.versionId ?? 0n);
         version.status = "Paused";
-      } else if (log.eventName === "DappUnpaused") {
+      } else if (evName === "DappUnpaused") {
         const { version } = getVersion(args.dappId, args.versionId ?? 0n);
         version.status = "Published";
-      } else if (log.eventName === "DappDeprecated") {
+      } else if (evName === "DappDeprecated") {
         const { version } = getVersion(args.dappId, args.versionId ?? 0n);
         version.status = "Deprecated";
       }

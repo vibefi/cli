@@ -10,7 +10,6 @@ This document describes CLI design and behavior (data flow, config, and contract
 
 ## Non-Goals (initial scope)
 
-- IPFS publishing/pinning of dapp bundles.
 - Rich indexing or caching layer beyond on-demand log reads.
 - Chain control commands (mining/time travel). Use external tools instead.
 
@@ -149,7 +148,7 @@ This document describes CLI design and behavior (data flow, config, and contract
 
 ## Smoke Test
 
-- `cli/scripts/smoke-test.sh`:
+- `cli/scripts/smoke-test.ts` (run via `bun run test:smoke`):
   - Starts local devnet in background.
   - Submits a `publishDapp` proposal.
   - Mines 1 block and casts a vote.

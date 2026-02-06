@@ -1,20 +1,14 @@
 import { Command } from "commander";
 import { type Hex } from "viem";
-import { dappRegistryAbi, governorAbi } from "../abi";
+import { dappRegistryAbi, governorAbi } from "@vibefi/shared";
+import { getWalletContext, loadContext, toJson, withCommonOptions } from "./context";
+import { printTxResult } from "./output";
 import {
   buildVetoDescriptionHash,
-  fetchProposalLogs,
-  fetchTxLogs,
-  getDappRegistryAddress,
-  getGovernorAddress,
-  getWalletContext,
-  loadContext,
-  printDecodedLogs,
-  requireArgs,
-  toJson,
-  withCommonOptions,
-  type ProposalCreatedArgs
-} from "./shared";
+  findProposalByIdOrThrow,
+  getGovernorAddress
+} from "./governor";
+import { getDappRegistryAddress } from "./registry";
 
 export function registerCouncil(program: Command) {
   withCommonOptions(
@@ -28,18 +22,11 @@ export function registerCouncil(program: Command) {
     const ctx = loadContext(options);
     const governor = getGovernorAddress(ctx);
 
-    const proposalLogs = await fetchProposalLogs(ctx, {
+    const args = await findProposalByIdOrThrow(ctx, proposalId, {
       fromBlock: options.fromBlock,
       toBlock: options.toBlock
     });
 
-    const target = proposalLogs.find((log) => {
-      const args = log.args as ProposalCreatedArgs | undefined;
-      return args?.proposalId?.toString() === proposalId;
-    });
-    if (!target) throw new Error(`Proposal ${proposalId} not found in logs.`);
-
-    const args = requireArgs<ProposalCreatedArgs>(target, "ProposalCreated");
     const descriptionHash = buildVetoDescriptionHash(args.description as string);
 
     const wallet = getWalletContext(ctx, options);
@@ -50,13 +37,7 @@ export function registerCouncil(program: Command) {
       args: [args.targets, args.values, args.calldatas, descriptionHash]
     });
 
-    const logs = await fetchTxLogs(ctx, hash);
-    if (options.json) {
-      console.log(toJson({ txHash: hash, logs }));
-      return;
-    }
-    console.log(`Veto submitted: ${hash}`);
-    printDecodedLogs("council:veto", hash, logs);
+    await printTxResult("Veto submitted", ctx, hash, options.json);
   });
 
   function withCouncilCommand(
@@ -83,13 +64,7 @@ export function registerCouncil(program: Command) {
         args: [BigInt(options.dappId), BigInt(options.versionId), options.reason]
       });
 
-      const logs = await fetchTxLogs(ctx, hash);
-      if (options.json) {
-        console.log(toJson({ txHash: hash, logs }));
-        return;
-      }
-      console.log(`${name} submitted: ${hash}`);
-      printDecodedLogs(name, hash, logs);
+      await printTxResult(`${name} submitted`, ctx, hash, options.json);
     });
   }
 

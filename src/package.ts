@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getAddress, isHex, keccak256, toBytes } from "viem";
+import { ensureDir, walkFiles, ipfsAdd } from "@vibefi/shared";
 
 export type PackageOptions = {
   path: string;
@@ -98,30 +99,6 @@ function stableStringify(value: unknown): string {
   return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(",")}}`;
 }
 
-function ensureDir(dir: string) {
-  fs.mkdirSync(dir, { recursive: true });
-}
-
-function walkFiles(root: string): string[] {
-  const entries = fs.readdirSync(root, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    if (entry.name.startsWith(".")) {
-      continue;
-    }
-    if (entry.name === "node_modules" || entry.name === ".git") {
-      continue;
-    }
-    const fullPath = path.join(root, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...walkFiles(fullPath));
-    } else if (entry.isFile()) {
-      files.push(fullPath);
-    }
-  }
-  return files;
-}
-
 function relativeTo(root: string, fullPath: string) {
   return path.relative(root, fullPath).replace(/\\/g, "/");
 }
@@ -182,7 +159,7 @@ function validateFiles(baseDir: string, constraints: Constraints) {
   const srcDir = path.join(baseDir, "src");
   const assetDir = path.join(baseDir, "assets");
   const abiDir = path.join(baseDir, "abis");
-  const files = walkFiles(baseDir);
+  const files = walkFiles(baseDir, { skipDotfiles: true });
   for (const file of files) {
     const rel = relativeTo(baseDir, file);
     if (rel.startsWith("src/")) {
@@ -291,39 +268,6 @@ function writeBundle(baseDir: string, outDir: string, files: string[]) {
   }
 }
 
-async function publishToIpfs(outDir: string, ipfsApi: string): Promise<string> {
-  const form = new FormData();
-  const files = walkFiles(outDir);
-  for (const file of files) {
-    const rel = relativeTo(outDir, file);
-    const data = fs.readFileSync(file);
-    form.append("file", new Blob([data]), rel);
-  }
-
-  const url = new URL("/api/v0/add", ipfsApi);
-  url.searchParams.set("recursive", "true");
-  url.searchParams.set("wrap-with-directory", "true");
-  url.searchParams.set("cid-version", "1");
-  url.searchParams.set("pin", "true");
-
-  const response = await fetch(url.toString(), { method: "POST", body: form });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`IPFS add failed: ${response.status} ${text}`);
-  }
-  const body = await response.text();
-  const lines = body.trim().split("\n").filter(Boolean);
-  if (lines.length === 0) {
-    throw new Error("IPFS add returned empty response");
-  }
-  const last = JSON.parse(lines[lines.length - 1]) as { Hash?: string; Cid?: { "/": string } };
-  const cid = last.Hash ?? last.Cid?.["/"];
-  if (!cid) {
-    throw new Error("IPFS add response missing CID");
-  }
-  return cid;
-}
-
 export async function packageDapp(options: PackageOptions): Promise<PackageResult> {
   const baseDir = path.resolve(options.path);
   if (!fs.existsSync(baseDir)) {
@@ -370,7 +314,7 @@ export async function packageDapp(options: PackageOptions): Promise<PackageResul
 
   if (options.ipfs !== false) {
     const ipfsApi = options.ipfsApi ?? "http://127.0.0.1:5001";
-    const rootCid = await publishToIpfs(outDir, ipfsApi);
+    const rootCid = await ipfsAdd(outDir, ipfsApi, { pin: true });
     if (toBytes(rootCid).length > constraints.maxRootCidBytes) {
       throw new Error(`rootCid exceeds ${constraints.maxRootCidBytes} bytes`);
     }

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { packageDapp } from "../package";
-import { toJson } from "./shared";
+import { toJson } from "./context";
 
 export function registerPackage(program: Command) {
   program
