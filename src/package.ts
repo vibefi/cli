@@ -44,10 +44,12 @@ const DEFAULT_CONSTRAINTS: Constraints = {
     "react-dom": "19.2.4",
     wagmi: "3.4.1",
     viem: "2.45.0",
-    shadcn: "3.7.0"
+    shadcn: "3.7.0",
+    "@tanstack/react-query": "5.90.20"
   },
   allowedDevDependencies: {
     "@vitejs/plugin-react": "5.1.2",
+    "@types/react": "19.2.4",
     typescript: "5.9.3",
     vite: "7.2.4"
   },
