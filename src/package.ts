@@ -105,19 +105,26 @@ function relativeTo(root: string, fullPath: string) {
   return path.relative(root, fullPath).replace(/\\/g, "/");
 }
 
-function validateTopLevel(baseDir: string, constraints: Constraints) {
-  const entries = fs.readdirSync(baseDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.name.startsWith(".")) continue;
-    if (!constraints.allowedTopLevel.includes(entry.name)) {
-      throw new Error(`Unexpected top-level entry: ${entry.name}`);
-    }
-  }
-
-  for (const required of ["src", "assets", "abis", "addresses.json", "index.html", "package.json"]) {
+function validateTopLevel(baseDir: string) {
+  const requiredDirs = ["src", "assets", "abis"];
+  for (const required of requiredDirs) {
     const full = path.join(baseDir, required);
     if (!fs.existsSync(full)) {
       throw new Error(`Missing required entry: ${required}`);
+    }
+    if (!fs.statSync(full).isDirectory()) {
+      throw new Error(`Expected directory: ${required}`);
+    }
+  }
+
+  const requiredFiles = ["addresses.json", "index.html", "package.json"];
+  for (const required of requiredFiles) {
+    const full = path.join(baseDir, required);
+    if (!fs.existsSync(full)) {
+      throw new Error(`Missing required entry: ${required}`);
+    }
+    if (!fs.statSync(full).isFile()) {
+      throw new Error(`Expected file: ${required}`);
     }
   }
 }
@@ -161,47 +168,45 @@ function validateFiles(baseDir: string, constraints: Constraints) {
   const srcDir = path.join(baseDir, "src");
   const assetDir = path.join(baseDir, "assets");
   const abiDir = path.join(baseDir, "abis");
-  const files = walkFiles(baseDir, { skipDotfiles: true });
-  for (const file of files) {
+
+  const srcFiles = walkFiles(srcDir, { skipDotfiles: true });
+  for (const file of srcFiles) {
     const rel = relativeTo(baseDir, file);
-    if (rel.startsWith("src/")) {
-      if (!constraints.allowedSrcExtensions.includes(path.extname(file))) {
-        throw new Error(`Invalid source extension: ${rel}`);
+    if (!constraints.allowedSrcExtensions.includes(path.extname(file))) {
+      throw new Error(`Invalid source extension: ${rel}`);
+    }
+    const content = fs.readFileSync(file, "utf-8");
+    for (const pattern of constraints.forbiddenPatterns) {
+      if (content.includes(pattern)) {
+        throw new Error(`Forbidden pattern in ${rel}: ${pattern}`);
       }
-      const content = fs.readFileSync(file, "utf-8");
-      for (const pattern of constraints.forbiddenPatterns) {
-        if (content.includes(pattern)) {
-          throw new Error(`Forbidden pattern in ${rel}: ${pattern}`);
-        }
-      }
-    } else if (rel.startsWith("assets/")) {
-      if (!constraints.allowedAssetExtensions.includes(path.extname(file))) {
-        throw new Error(`Invalid asset extension: ${rel}`);
-      }
-    } else if (rel.startsWith("abis/")) {
-      if (!constraints.allowedAbiExtensions.includes(path.extname(file))) {
-        throw new Error(`Invalid ABI extension: ${rel}`);
-      }
-      readJsonFile(file);
-    } else if (rel === "addresses.json") {
-      const data = readJsonFile(file);
-      validateAddresses(data, "addresses.json");
-    } else if (rel === "index.html") {
-      const content = fs.readFileSync(file, "utf-8");
-      for (const pattern of constraints.forbiddenPatterns) {
-        if (content.includes(pattern)) {
-          throw new Error(`Forbidden pattern in ${rel}: ${pattern}`);
-        }
-      }
-    } else if (rel === "package.json") {
-      // validated separately
-    } else if (rel === "vite.config.ts" || rel.startsWith("tsconfig")) {
-      // allowed but not bundled
-    } else {
-      const allowed = [srcDir, assetDir, abiDir].some((dir) => file.startsWith(dir));
-      if (!allowed) {
-        throw new Error(`Unexpected file: ${rel}`);
-      }
+    }
+  }
+
+  const assetFiles = walkFiles(assetDir, { skipDotfiles: true });
+  for (const file of assetFiles) {
+    const rel = relativeTo(baseDir, file);
+    if (!constraints.allowedAssetExtensions.includes(path.extname(file))) {
+      throw new Error(`Invalid asset extension: ${rel}`);
+    }
+  }
+
+  const abiFiles = walkFiles(abiDir, { skipDotfiles: true });
+  for (const file of abiFiles) {
+    const rel = relativeTo(baseDir, file);
+    if (!constraints.allowedAbiExtensions.includes(path.extname(file))) {
+      throw new Error(`Invalid ABI extension: ${rel}`);
+    }
+    readJsonFile(file);
+  }
+
+  const addresses = readJsonFile(path.join(baseDir, "addresses.json"));
+  validateAddresses(addresses, "addresses.json");
+
+  const indexHtml = fs.readFileSync(path.join(baseDir, "index.html"), "utf-8");
+  for (const pattern of constraints.forbiddenPatterns) {
+    if (indexHtml.includes(pattern)) {
+      throw new Error(`Forbidden pattern in index.html: ${pattern}`);
     }
   }
 }
@@ -252,7 +257,7 @@ function collectBundleFiles(baseDir: string) {
     const full = path.join(baseDir, entry);
     if (!fs.existsSync(full)) continue;
     if (fs.statSync(full).isDirectory()) {
-      files.push(...walkFiles(full));
+      files.push(...walkFiles(full, { skipDotfiles: true }));
     } else {
       files.push(full);
     }
@@ -261,6 +266,8 @@ function collectBundleFiles(baseDir: string) {
 }
 
 function writeBundle(baseDir: string, outDir: string, files: string[]) {
+  // Ensure deterministic contents across repeated runs by removing stale files.
+  fs.rmSync(outDir, { recursive: true, force: true });
   ensureDir(outDir);
   for (const file of files) {
     const rel = relativeTo(baseDir, file);
@@ -277,7 +284,7 @@ export async function packageDapp(options: PackageOptions): Promise<PackageResul
   }
 
   const constraints = loadConstraints(options.constraintsPath);
-  validateTopLevel(baseDir, constraints);
+  validateTopLevel(baseDir);
   validatePackageJson(baseDir, constraints);
   validateFiles(baseDir, constraints);
 
