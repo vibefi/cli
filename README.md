@@ -18,6 +18,8 @@ cd ../cli
 bun run refresh-abis
 ```
 
+This syncs ABI JSONs into `packages/shared/src/abis/`, which the CLI imports at runtime.
+
 On first run, the CLI creates `.vibefi/config.json` in the current working directory.
 Default config is devnet-first but includes mainnet placeholders.
 

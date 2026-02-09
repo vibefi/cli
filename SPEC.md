@@ -67,6 +67,16 @@ This document describes CLI design and behavior (data flow, config, and contract
   - Use `--dapp-version` (not `--version`) to avoid conflicting with CLI version flag.
   - Prints decoded logs from the proposal transaction.
 
+### Upgrade Dapp
+
+- `vibefi dapp:upgrade`
+  - Builds calldata for `DappRegistry.upgradeDapp(dappId, rootCid, name, version, description)`.
+  - Submits it to `VfiGovernor.propose` with a description string.
+  - `rootCid` accepts either a hex string (`0x...`) or a raw string (hex-encoded by the CLI).
+  - Requires `--dapp-id` for the existing dapp.
+  - Use `--dapp-version` (not `--version`) to avoid conflicting with CLI version flag.
+  - Prints decoded logs from the proposal transaction.
+
 ### Voting
 
 - `vibefi vote:cast <proposalId> --support for|against|abstain [--reason text]`
@@ -117,12 +127,14 @@ This document describes CLI design and behavior (data flow, config, and contract
 
 - `VfiGovernor` functions: `propose`, `queue`, `execute`, `state`, `proposalSnapshot`, `proposalDeadline`,
   `proposalVotes`, `quorum`, `castVote`, `castVoteWithReason`, `vetoProposal`.
-- `DappRegistry` functions: `publishDapp`, `pauseDappVersion`, `unpauseDappVersion`, `deprecateDappVersion`.
+- `DappRegistry` functions: `publishDapp`, `upgradeDapp`, `pauseDappVersion`, `unpauseDappVersion`,
+  `deprecateDappVersion`.
 
 ## ABI Management
 
-- ABI files are stored in `cli/src/abis/` and generated from the latest `contracts/out` artifacts.
-- Use `bun run refresh-abis` to regenerate ABI JSONs (requires `forge build` in `contracts/`).
+- ABI files used by CLI are stored in `packages/shared/src/abis/`.
+- Use `bun run refresh-abis` from `cli/` to regenerate those JSONs from `contracts/out`
+  (requires `forge build` in `contracts/`).
 
 ## Linting & Reproducibility
 

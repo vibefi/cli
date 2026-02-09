@@ -15,6 +15,17 @@ function findRepoRoot(start: string): string {
   throw new Error("Could not locate repo root (expected ./contracts directory)");
 }
 
+function ensureMonorepoTargetDir(repoRoot: string): string {
+  const sharedAbiDir = path.join(repoRoot, "packages", "shared", "src", "abis");
+  if (!fs.existsSync(path.join(repoRoot, "packages", "shared"))) {
+    throw new Error(
+      "Could not locate packages/shared. Run this from the monorepo checkout that contains contracts/ and packages/shared/."
+    );
+  }
+  fs.mkdirSync(sharedAbiDir, { recursive: true });
+  return sharedAbiDir;
+}
+
 function findArtifact(contractsOut: string, name: string): string {
   const matches: string[] = [];
   const stack = [contractsOut];
@@ -49,8 +60,7 @@ if (!fs.existsSync(contractsOut)) {
   throw new Error(`Contracts out directory not found at ${contractsOut}. Run forge build first.`);
 }
 
-const outDir = path.join(cliDir, "src", "abis");
-fs.mkdirSync(outDir, { recursive: true });
+const outDir = ensureMonorepoTargetDir(repoRoot);
 
 for (const name of REQUIRED_ARTIFACTS) {
   const artifactPath = findArtifact(contractsOut, name);
@@ -63,4 +73,4 @@ for (const name of REQUIRED_ARTIFACTS) {
   console.log(`Wrote ${dest}`);
 }
 
-console.log("ABI refresh complete.");
+console.log("ABI refresh complete for packages/shared.");
