@@ -106,7 +106,8 @@ This document describes CLI design and behavior (data flow, config, and contract
   - Publishes the bundle to IPFS by default (uses `http://127.0.0.1:5001`).
   - `--no-ipfs` skips publish and returns a deterministic hash of the manifest.
   - `--ipfs-api` overrides the IPFS API URL.
-  - Validates top-level structure: `src/`, `assets/`, `abis/`, `addresses.json`, `index.html`, `package.json`.
+  - Requires top-level bundle inputs: `src/`, `assets/`, `abis/`, `addresses.json`, `index.html`, `package.json`.
+  - Ignores extra files/directories outside constrained bundle paths during packaging.
   - Enforces dependency allowlist + exact versions.
   - Rejects forbidden patterns (HTTP, fetch/XHR/WebSocket, dynamic HTTP imports).
   - Generates a `manifest.json` with file hashes and metadata.
