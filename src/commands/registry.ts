@@ -99,6 +99,20 @@ export function encodeProposeCalldata(
   });
 }
 
+export function encodeUpgradeCalldata(
+  dappId: bigint,
+  rootCid: Hex,
+  name: string,
+  version: string,
+  description: string
+) {
+  return encodeFunctionData({
+    abi: dappRegistryAbi,
+    functionName: "upgradeDapp",
+    args: [dappId, rootCid, name, version, description]
+  });
+}
+
 export function getDappRegistryAddress(ctx: ReturnType<typeof loadContext>) {
   const dappRegistry = ctx.contracts.dappRegistry;
   if (!dappRegistry) throw new Error("Missing dappRegistry address in config/devnet.");

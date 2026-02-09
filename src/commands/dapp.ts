@@ -8,6 +8,7 @@ import { getGovernorAddress } from "./governor";
 import { requireArgs } from "./governor";
 import {
   encodeProposeCalldata,
+  encodeUpgradeCalldata,
   encodeRootCid,
   fetchDappLogs,
   getDappRegistryAddress,
@@ -51,6 +52,46 @@ export function registerDapp(program: Command) {
     });
 
     await printTxResult("Proposal submitted", ctx, hash, options.json);
+  });
+
+  withCommonOptions(
+    program
+      .command("dapp:upgrade")
+      .description("Propose upgrading an existing dapp")
+      .requiredOption("--dapp-id <id>", "Dapp id")
+      .requiredOption("--root-cid <value>", "Root CID (hex 0x... or string)")
+      .requiredOption("--name <name>", "Dapp name")
+      .requiredOption("--dapp-version <version>", "Dapp version string")
+      .requiredOption("--description <text>", "Dapp description")
+      .option("--proposal-description <text>", "Proposal description")
+  ).action(async (options) => {
+    const ctx = loadContext(options);
+    const governor = getGovernorAddress(ctx);
+    const dappRegistry = getDappRegistryAddress(ctx);
+
+    const wallet = getWalletContext(ctx, options);
+
+    const rootCid = encodeRootCid(options.rootCid as string);
+    const dappId = BigInt(options.dappId as string);
+    const calldata = encodeUpgradeCalldata(
+      dappId,
+      rootCid,
+      options.name,
+      options.dappVersion,
+      options.description
+    );
+
+    const description =
+      options.proposalDescription ?? `Upgrade dapp #${dappId.toString()} ${options.name} ${options.dappVersion}`;
+
+    const hash = await wallet.walletClient.writeContract({
+      address: governor as Hex,
+      abi: governorAbi,
+      functionName: "propose",
+      args: [[dappRegistry as Hex], [0n], [calldata], description]
+    });
+
+    await printTxResult("Upgrade proposal submitted", ctx, hash, options.json);
   });
 
   withCommonOptions(
