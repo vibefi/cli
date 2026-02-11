@@ -23,8 +23,8 @@ export type ProposalCreatedArgs = {
   targets: Hex[];
   values: bigint[];
   calldatas: Hex[];
-  startBlock: bigint;
-  endBlock: bigint;
+  voteStart: bigint;
+  voteEnd: bigint;
   description: string;
 };
 

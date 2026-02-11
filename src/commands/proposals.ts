@@ -47,8 +47,8 @@ export function registerProposals(program: Command) {
           proposalId: proposalId.toString(),
           proposer: getAddress(args.proposer),
           description: args.description,
-          startBlock: args.startBlock.toString(),
-          endBlock: args.endBlock.toString(),
+          startBlock: args.voteStart.toString(),
+          endBlock: args.voteEnd.toString(),
           state: proposalStateNames[Number(state)] ?? String(state)
         };
       })
@@ -96,8 +96,8 @@ export function registerProposals(program: Command) {
       targets: args.targets.map((target) => getAddress(target)),
       values: args.values.map((v) => v.toString()),
       calldatas: args.calldatas,
-      startBlock: args.startBlock.toString(),
-      endBlock: args.endBlock.toString(),
+      startBlock: args.voteStart.toString(),
+      endBlock: args.voteEnd.toString(),
       snapshot: snapshot.toString(),
       deadline: deadline.toString(),
       state
