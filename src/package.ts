@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getAddress, isHex, keccak256, toBytes } from "viem";
-import { ensureDir, walkFiles, ipfsAdd } from "@vibefi/shared";
+import {
+  ensureDir,
+  walkFiles,
+  ipfsAdd,
+  type ManifestCapabilities,
+  validateManifestCapabilities
+} from "@vibefi/shared";
 
 export type PackageOptions = {
   path: string;
@@ -31,6 +37,10 @@ type ManifestFile = {
   bytes: number;
 };
 
+type SourceManifest = {
+  capabilities?: ManifestCapabilities;
+};
+
 export type PackageResult = {
   rootCid: string;
   outDir: string;
@@ -58,6 +68,7 @@ const DEFAULT_CONSTRAINTS: Constraints = {
     "assets",
     "abis",
     "addresses.json",
+    "manifest.json",
     "index.html",
     "package.json",
     "vite.config.ts",
@@ -118,6 +129,7 @@ function validateTopLevel(baseDir: string) {
   }
 
   const requiredFiles = ["addresses.json", "index.html", "package.json"];
+  requiredFiles.push("manifest.json");
   for (const required of requiredFiles) {
     const full = path.join(baseDir, required);
     if (!fs.existsSync(full)) {
@@ -250,6 +262,20 @@ function readJsonFile(filePath: string): unknown {
   }
 }
 
+function readSourceManifest(baseDir: string): SourceManifest {
+  const manifestPath = path.join(baseDir, "manifest.json");
+  const raw = readJsonFile(manifestPath);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("manifest.json must be an object");
+  }
+  const capabilities = validateManifestCapabilities(
+    (raw as Record<string, unknown>).capabilities
+  );
+  return {
+    capabilities
+  };
+}
+
 function collectBundleFiles(baseDir: string) {
   const bundlePaths = ["src", "assets", "abis", "addresses.json", "index.html"];
   const files: string[] = [];
@@ -287,6 +313,7 @@ export async function packageDapp(options: PackageOptions): Promise<PackageResul
   validateTopLevel(baseDir);
   validatePackageJson(baseDir, constraints);
   validateFiles(baseDir, constraints);
+  const sourceManifest = readSourceManifest(baseDir);
 
   const bundleFiles = collectBundleFiles(baseDir);
   const manifestFiles: ManifestFile[] = bundleFiles
@@ -304,6 +331,7 @@ export async function packageDapp(options: PackageOptions): Promise<PackageResul
     version: options.version,
     description: options.description,
     createdAt: new Date().toISOString(),
+    capabilities: sourceManifest.capabilities,
     constraints: {
       type: "default",
       allowedDependencies: constraints.allowedDependencies,
