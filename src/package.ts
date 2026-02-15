@@ -75,7 +75,7 @@ const DEFAULT_CONSTRAINTS: Constraints = {
     "tsconfig.json",
     "tsconfig.node.json"
   ],
-  allowedSrcExtensions: [".ts", ".tsx"],
+  allowedSrcExtensions: [".ts", ".tsx", ".css"],
   allowedAssetExtensions: [".webp"],
   allowedAbiExtensions: [".json"],
   forbiddenPatterns: [
