@@ -262,7 +262,7 @@ function readJsonFile(filePath: string): unknown {
   }
 }
 
-function readSourceManifest(baseDir: string): SourceManifest {
+export function readSourceManifest(baseDir: string): SourceManifest {
   const manifestPath = path.join(baseDir, "manifest.json");
   const raw = readJsonFile(manifestPath);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
