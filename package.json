@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "refresh-abis": "bun run scripts/refresh-abis.ts",
+    "test:unit": "bun test tests/package.manifest.test.ts",
     "test:e2e": "echo \"Moved to vibefi-e2e repo\" && exit 1",
     "test:smoke": "bun run scripts/smoke-test.ts",
     "typecheck": "bun run tsc -p tsconfig.json --noEmit"

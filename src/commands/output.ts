@@ -32,7 +32,7 @@ export async function fetchTxLogs(
           abi: governorAbi,
           data: log.data,
           topics: log.topics
-        });
+        }) as { eventName?: string; args: unknown };
         decoded = { address: log.address, contract: "VfiGovernor", event: result.eventName ?? "Unknown", args: result.args };
       } catch {
         // fallthrough
@@ -45,7 +45,7 @@ export async function fetchTxLogs(
           abi: dappRegistryAbi,
           data: log.data,
           topics: log.topics
-        });
+        }) as { eventName?: string; args: unknown };
         decoded = { address: log.address, contract: "DappRegistry", event: result.eventName ?? "Unknown", args: result.args };
       } catch {
         // fallthrough
@@ -58,7 +58,7 @@ export async function fetchTxLogs(
           abi: vfiTokenAbi,
           data: log.data,
           topics: log.topics
-        });
+        }) as { eventName?: string; args: unknown };
         decoded = { address: log.address, contract: "VfiToken", event: result.eventName ?? "Unknown", args: result.args };
       } catch {
         // fallthrough
