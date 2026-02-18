@@ -15,16 +15,19 @@ afterEach(() => {
   }
 });
 
-function createManifestDir(manifest: unknown): string {
+function createManifestDir(vibefi: unknown): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vibefi-cli-manifest-"));
   tempDirs.push(dir);
-  fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  fs.writeFileSync(path.join(dir, "vibefi.json"), JSON.stringify(vibefi, null, 2));
   return dir;
 }
 
 describe("readSourceManifest capability validation", () => {
   test("rejects non-positive maxBytes", () => {
     const dir = createManifestDir({
+      addresses: {
+        pool: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      },
       capabilities: {
         ipfs: {
           allow: [
@@ -43,6 +46,9 @@ describe("readSourceManifest capability validation", () => {
 
   test("rejects invalid read kind in as", () => {
     const dir = createManifestDir({
+      addresses: {
+        pool: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      },
       capabilities: {
         ipfs: {
           allow: [
@@ -60,6 +66,9 @@ describe("readSourceManifest capability validation", () => {
 
   test("rejects empty paths array", () => {
     const dir = createManifestDir({
+      addresses: {
+        pool: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      },
       capabilities: {
         ipfs: {
           allow: [
@@ -77,6 +86,9 @@ describe("readSourceManifest capability validation", () => {
 
   test("accepts valid capabilities payload", () => {
     const dir = createManifestDir({
+      addresses: {
+        pool: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      },
       capabilities: {
         ipfs: {
           allow: [
@@ -94,5 +106,17 @@ describe("readSourceManifest capability validation", () => {
     const manifest = readSourceManifest(dir);
     expect(manifest.capabilities?.ipfs?.allow.length).toBe(1);
     expect(manifest.capabilities?.ipfs?.allow[0]?.as).toEqual(["snippet", "text"]);
+  });
+
+  test("requires addresses in vibefi.json", () => {
+    const dir = createManifestDir({
+      capabilities: {
+        ipfs: {
+          allow: [],
+        },
+      },
+    });
+
+    expect(() => readSourceManifest(dir)).toThrow(/addresses is required/i);
   });
 });

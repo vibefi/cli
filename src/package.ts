@@ -38,6 +38,7 @@ type ManifestFile = {
 };
 
 type SourceManifest = {
+  addresses: unknown;
   capabilities?: ManifestCapabilities;
 };
 
@@ -67,8 +68,7 @@ const DEFAULT_CONSTRAINTS: Constraints = {
     "src",
     "assets",
     "abis",
-    "addresses.json",
-    "manifest.json",
+    "vibefi.json",
     "index.html",
     "package.json",
     "vite.config.ts",
@@ -128,8 +128,7 @@ function validateTopLevel(baseDir: string) {
     }
   }
 
-  const requiredFiles = ["addresses.json", "index.html", "package.json"];
-  requiredFiles.push("manifest.json");
+  const requiredFiles = ["vibefi.json", "index.html", "package.json"];
   for (const required of requiredFiles) {
     const full = path.join(baseDir, required);
     if (!fs.existsSync(full)) {
@@ -212,9 +211,6 @@ function validateFiles(baseDir: string, constraints: Constraints) {
     readJsonFile(file);
   }
 
-  const addresses = readJsonFile(path.join(baseDir, "addresses.json"));
-  validateAddresses(addresses, "addresses.json");
-
   const indexHtml = fs.readFileSync(path.join(baseDir, "index.html"), "utf-8");
   for (const pattern of constraints.forbiddenPatterns) {
     if (indexHtml.includes(pattern)) {
@@ -249,7 +245,7 @@ function validateAddresses(value: unknown, context: string) {
     }
     return;
   }
-  throw new Error(`Invalid addresses.json structure at ${context}`);
+  throw new Error(`Invalid vibefi.json addresses structure at ${context}`);
 }
 
 function readJsonFile(filePath: string): unknown {
@@ -263,21 +259,27 @@ function readJsonFile(filePath: string): unknown {
 }
 
 export function readSourceManifest(baseDir: string): SourceManifest {
-  const manifestPath = path.join(baseDir, "manifest.json");
+  const manifestPath = path.join(baseDir, "vibefi.json");
   const raw = readJsonFile(manifestPath);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("manifest.json must be an object");
+    throw new Error("vibefi.json must be an object");
   }
+  const addresses = (raw as Record<string, unknown>).addresses;
+  if (addresses === undefined) {
+    throw new Error("vibefi.json.addresses is required");
+  }
+  validateAddresses(addresses, "vibefi.json.addresses");
   const capabilities = validateManifestCapabilities(
     (raw as Record<string, unknown>).capabilities
   );
   return {
+    addresses,
     capabilities
   };
 }
 
 function collectBundleFiles(baseDir: string) {
-  const bundlePaths = ["src", "assets", "abis", "addresses.json", "index.html"];
+  const bundlePaths = ["src", "assets", "abis", "vibefi.json", "index.html"];
   const files: string[] = [];
   for (const entry of bundlePaths) {
     const full = path.join(baseDir, entry);
