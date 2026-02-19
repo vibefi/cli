@@ -35,30 +35,8 @@ type BundleLayout = "constrained" | "static-html";
 
 const STATIC_HTML_ALLOWED_EXTENSIONS = new Set([
   ".html",
-  ".htm",
   ".js",
-  ".mjs",
-  ".cjs",
-  ".css",
-  ".json",
-  ".map",
-  ".svg",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".webp",
-  ".gif",
-  ".ico",
-  ".bmp",
-  ".avif",
-  ".woff",
-  ".woff2",
-  ".ttf",
-  ".otf",
-  ".eot",
-  ".wasm",
-  ".txt",
-  ".xml"
+  ".json"
 ]);
 
 type ManifestFile = {
