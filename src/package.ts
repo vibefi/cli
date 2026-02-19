@@ -24,13 +24,42 @@ export type PackageOptions = {
 type Constraints = {
   allowedDependencies: Record<string, string>;
   allowedDevDependencies: Record<string, string>;
-  allowedTopLevel: string[];
   allowedSrcExtensions: string[];
   allowedAssetExtensions: string[];
   allowedAbiExtensions: string[];
   forbiddenPatterns: string[];
   maxRootCidBytes: number;
 };
+
+type BundleLayout = "constrained" | "static-html";
+
+const STATIC_HTML_ALLOWED_EXTENSIONS = new Set([
+  ".html",
+  ".htm",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".css",
+  ".json",
+  ".map",
+  ".svg",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".ico",
+  ".bmp",
+  ".avif",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".wasm",
+  ".txt",
+  ".xml"
+]);
 
 type ManifestFile = {
   path: string;
@@ -64,17 +93,6 @@ const DEFAULT_CONSTRAINTS: Constraints = {
     typescript: "5.9.3",
     vite: "7.2.4"
   },
-  allowedTopLevel: [
-    "src",
-    "assets",
-    "abis",
-    "vibefi.json",
-    "index.html",
-    "package.json",
-    "vite.config.ts",
-    "tsconfig.json",
-    "tsconfig.node.json"
-  ],
   allowedSrcExtensions: [".ts", ".tsx", ".css"],
   allowedAssetExtensions: [".webp"],
   allowedAbiExtensions: [".json"],
@@ -116,7 +134,33 @@ function relativeTo(root: string, fullPath: string) {
   return path.relative(root, fullPath).replace(/\\/g, "/");
 }
 
-function validateTopLevel(baseDir: string) {
+function hasRequiredEntries(baseDir: string, requiredDirs: string[], requiredFiles: string[]) {
+  const missingDirs = requiredDirs.filter((entry) => {
+    const full = path.join(baseDir, entry);
+    return !fs.existsSync(full) || !fs.statSync(full).isDirectory();
+  });
+  const missingFiles = requiredFiles.filter((entry) => {
+    const full = path.join(baseDir, entry);
+    return !fs.existsSync(full) || !fs.statSync(full).isFile();
+  });
+  return { missingDirs, missingFiles };
+}
+
+function detectBundleLayout(baseDir: string): BundleLayout {
+  const constrained = hasRequiredEntries(baseDir, ["src", "assets", "abis"], ["vibefi.json", "index.html", "package.json"]);
+  if (constrained.missingDirs.length === 0 && constrained.missingFiles.length === 0) {
+    return "constrained";
+  }
+  const staticHtml = hasRequiredEntries(baseDir, [], ["vibefi.json", "index.html"]);
+  if (staticHtml.missingFiles.length === 0) {
+    return "static-html";
+  }
+  throw new Error(
+    "Unsupported dapp layout. Expected either constrained layout (src/, assets/, abis/, vibefi.json, index.html, package.json) or static-html layout (vibefi.json, index.html)."
+  );
+}
+
+function validateConstrainedTopLevel(baseDir: string) {
   const requiredDirs = ["src", "assets", "abis"];
   for (const required of requiredDirs) {
     const full = path.join(baseDir, required);
@@ -130,6 +174,18 @@ function validateTopLevel(baseDir: string) {
 
   const requiredFiles = ["vibefi.json", "index.html", "package.json"];
   for (const required of requiredFiles) {
+    const full = path.join(baseDir, required);
+    if (!fs.existsSync(full)) {
+      throw new Error(`Missing required entry: ${required}`);
+    }
+    if (!fs.statSync(full).isFile()) {
+      throw new Error(`Expected file: ${required}`);
+    }
+  }
+}
+
+function validateStaticTopLevel(baseDir: string) {
+  for (const required of ["vibefi.json", "index.html"]) {
     const full = path.join(baseDir, required);
     if (!fs.existsSync(full)) {
       throw new Error(`Missing required entry: ${required}`);
@@ -175,7 +231,7 @@ function validatePackageJson(baseDir: string, constraints: Constraints) {
   }
 }
 
-function validateFiles(baseDir: string, constraints: Constraints) {
+function validateConstrainedFiles(baseDir: string, constraints: Constraints) {
   const srcDir = path.join(baseDir, "src");
   const assetDir = path.join(baseDir, "assets");
   const abiDir = path.join(baseDir, "abis");
@@ -278,7 +334,7 @@ export function readSourceManifest(baseDir: string): SourceManifest {
   };
 }
 
-function collectBundleFiles(baseDir: string) {
+function collectConstrainedBundleFiles(baseDir: string) {
   const bundlePaths = ["src", "assets", "abis", "vibefi.json", "index.html"];
   const files: string[] = [];
   for (const entry of bundlePaths) {
@@ -290,6 +346,38 @@ function collectBundleFiles(baseDir: string) {
       files.push(full);
     }
   }
+  return files;
+}
+
+function collectStaticBundleFiles(baseDir: string) {
+  const ignoredTopLevelEntries = new Set(["node_modules", "dist", "coverage", ".vibefi"]);
+  const files: string[] = [];
+
+  function walk(currentDir: string, depth: number) {
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      if (depth === 0 && ignoredTopLevelEntries.has(entry.name)) continue;
+
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        walk(fullPath, depth + 1);
+        continue;
+      }
+      const rel = relativeTo(baseDir, fullPath);
+      if (rel === "manifest.json") continue;
+      const extension = path.extname(rel).toLowerCase();
+      if (!STATIC_HTML_ALLOWED_EXTENSIONS.has(extension)) {
+        throw new Error(
+          `Static-html layout does not allow file type: ${rel} (extension ${extension || "<none>"})`
+        );
+      }
+      files.push(fullPath);
+    }
+  }
+
+  walk(baseDir, 0);
   return files;
 }
 
@@ -312,12 +400,19 @@ export async function packageDapp(options: PackageOptions): Promise<PackageResul
   }
 
   const constraints = loadConstraints(options.constraintsPath);
-  validateTopLevel(baseDir);
-  validatePackageJson(baseDir, constraints);
-  validateFiles(baseDir, constraints);
+  const layout = detectBundleLayout(baseDir);
+  if (layout === "constrained") {
+    validateConstrainedTopLevel(baseDir);
+    validatePackageJson(baseDir, constraints);
+    validateConstrainedFiles(baseDir, constraints);
+  } else {
+    validateStaticTopLevel(baseDir);
+  }
   const sourceManifest = readSourceManifest(baseDir);
 
-  const bundleFiles = collectBundleFiles(baseDir);
+  const bundleFiles = layout === "constrained"
+    ? collectConstrainedBundleFiles(baseDir)
+    : collectStaticBundleFiles(baseDir);
   const manifestFiles: ManifestFile[] = bundleFiles
     .map((file) => {
       const content = fs.readFileSync(file);
@@ -333,12 +428,15 @@ export async function packageDapp(options: PackageOptions): Promise<PackageResul
     version: options.version,
     description: options.description,
     createdAt: new Date().toISOString(),
+    layout,
     capabilities: sourceManifest.capabilities,
-    constraints: {
-      type: "default",
-      allowedDependencies: constraints.allowedDependencies,
-      allowedDevDependencies: constraints.allowedDevDependencies
-    },
+    constraints: layout === "constrained"
+      ? {
+        type: "default",
+        allowedDependencies: constraints.allowedDependencies,
+        allowedDevDependencies: constraints.allowedDevDependencies
+      }
+      : { type: "static-html" },
     entry: "index.html",
     files: manifestFiles
   };
