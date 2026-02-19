@@ -9,7 +9,8 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULTS_PATH = path.join(MODULE_DIR, "..", "config.defaults.json");
 
 export function ensureConfig(): VibefiConfig {
-  if (!fs.existsSync(CONFIG_PATH)) {
+  // if it doesn't exist or if it's been updated in the package, copy the defaults
+  if (!fs.existsSync(CONFIG_PATH) || fs.statSync(DEFAULTS_PATH).mtimeMs > fs.statSync(CONFIG_PATH).mtimeMs) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     const defaultsRaw = fs.readFileSync(DEFAULTS_PATH, "utf-8");
     fs.writeFileSync(CONFIG_PATH, defaultsRaw, "utf-8");
