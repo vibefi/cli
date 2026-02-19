@@ -112,14 +112,16 @@ This document describes CLI design and behavior (data flow, config, and contract
 
 - `vibefi package`
   - Use `--dapp-version` (not `--version`) to avoid conflicting with CLI version flag.
-  - Validates a local React dapp bundle and outputs a deterministic `rootCid`.
+  - Validates a local dapp bundle and outputs a deterministic `rootCid`.
   - Publishes the bundle to IPFS by default (uses `http://127.0.0.1:5001`).
   - `--no-ipfs` skips publish and returns a deterministic hash of the manifest.
   - `--ipfs-api` overrides the IPFS API URL.
-  - Requires top-level bundle inputs: `src/`, `assets/`, `abis/`, `vibefi.json`, `index.html`, `package.json`.
-  - Ignores extra files/directories outside constrained bundle paths during packaging.
-  - Enforces dependency allowlist + exact versions.
-  - Rejects forbidden patterns (HTTP, fetch/XHR/WebSocket, dynamic HTTP imports).
+  - Supports two layouts:
+    - constrained: `src/`, `assets/`, `abis/`, `vibefi.json`, `index.html`, `package.json`.
+    - static-html: `vibefi.json`, `index.html`, plus only `.html`, `.js`, and `.json` files.
+  - Constrained layout enforces dependency allowlist + exact versions.
+  - Constrained layout rejects forbidden patterns (HTTP, fetch/XHR/WebSocket, dynamic HTTP imports).
+  - Static-html layout bundles non-dotfiles recursively (excluding build/cache dirs like `node_modules`, `dist`, `.vibefi`) and rejects all extensions except `.html`, `.js`, `.json`.
   - Reads source properties from `vibefi.json` (`addresses`, optional `capabilities`).
   - Generates a post-bundle `manifest.json` with file hashes and metadata.
   - Emits a bundle directory that can be proposed via `dapp:propose`.

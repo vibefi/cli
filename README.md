@@ -95,6 +95,10 @@ The `package` command validates a local dapp bundle and produces a deterministic
 manifest + bundle directory. By default it publishes to a local IPFS node and
 prints the folder CID for `dapp:propose`.
 
+Supported layouts:
+- constrained React/Vite layout: `src/`, `assets/`, `abis/`, `vibefi.json`, `index.html`, `package.json`
+- static-html layout: `vibefi.json`, `index.html`, and only `.html`, `.js`, `.json` files
+
 ```bash
 bun run src/index.ts package \
   --path ./my-dapp \
