@@ -37,10 +37,10 @@ describe("packageDapp layout support", () => {
     fs.mkdirSync(path.join(dir, "src"));
     fs.mkdirSync(path.join(dir, "assets"));
     fs.mkdirSync(path.join(dir, "abis"));
-    writeText(path.join(dir, "src", "main.ts"), "export const ok = 1;\n");
+    writeText(path.join(dir, "src", "main.tsx"), "export const ok = 1;\n");
     fs.writeFileSync(path.join(dir, "assets", "logo.webp"), "webp");
     writeJson(path.join(dir, "abis", "Foo.json"), []);
-    writeText(path.join(dir, "index.html"), "<!doctype html><title>ok</title>\n");
+    writeText(path.join(dir, "index.html"), "<!doctype html><script type=\"module\" src=\"/src/main.tsx\"></script>\n");
     writeJson(path.join(dir, "package.json"), { name: "constrained", private: true, version: "0.0.1", type: "module" });
     writeJson(path.join(dir, "vibefi.json"), {
       addresses: {
@@ -59,7 +59,7 @@ describe("packageDapp layout support", () => {
     });
 
     expect((result.manifest as { layout?: string }).layout).toBe("constrained");
-    expect(fs.existsSync(path.join(result.outDir, "src", "main.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(result.outDir, "src", "main.tsx"))).toBe(true);
     expect(fs.existsSync(path.join(result.outDir, "assets", "logo.webp"))).toBe(true);
     expect(fs.existsSync(path.join(result.outDir, "abis", "Foo.json"))).toBe(true);
   });
@@ -100,10 +100,10 @@ describe("packageDapp layout support", () => {
     fs.mkdirSync(path.join(dir, "src"));
     fs.mkdirSync(path.join(dir, "assets"));
     fs.mkdirSync(path.join(dir, "abis"));
-    writeText(path.join(dir, "src", "main.ts"), "export const ok = 1;\n");
+    writeText(path.join(dir, "src", "main.tsx"), "export const ok = 1;\n");
     fs.writeFileSync(path.join(dir, "assets", "logo.webp"), "webp");
     writeJson(path.join(dir, "abis", "Foo.json"), []);
-    writeText(path.join(dir, "index.html"), "<!doctype html><title>ok</title>\n");
+    writeText(path.join(dir, "index.html"), "<!doctype html><script type=\"module\" src=\"/src/main.tsx\"></script>\n");
     writeJson(path.join(dir, "package.json"), {
       name: "constrained",
       private: true,
@@ -130,6 +130,64 @@ describe("packageDapp layout support", () => {
         ipfs: false
       })
     ).rejects.toThrow(/Dependency not allowed/i);
+  });
+
+  test("rejects constrained layout when index.html is missing /src/main.tsx module entrypoint", async () => {
+    const dir = createTempDir("vibefi-cli-constrained-missing-entry-");
+    fs.mkdirSync(path.join(dir, "src"));
+    fs.mkdirSync(path.join(dir, "assets"));
+    fs.mkdirSync(path.join(dir, "abis"));
+    writeText(path.join(dir, "src", "main.tsx"), "export const ok = 1;\n");
+    fs.writeFileSync(path.join(dir, "assets", "logo.webp"), "webp");
+    writeJson(path.join(dir, "abis", "Foo.json"), []);
+    writeText(path.join(dir, "index.html"), "<!doctype html><script type=\"module\" src=\"/src/bootstrap.tsx\"></script>\n");
+    writeJson(path.join(dir, "package.json"), { name: "constrained", private: true, version: "0.0.1", type: "module" });
+    writeJson(path.join(dir, "vibefi.json"), {
+      addresses: {
+        "31337": {
+          dappRegistry: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
+        }
+      }
+    });
+
+    await expect(
+      packageDapp({
+        path: dir,
+        name: "Constrained",
+        version: "0.0.1",
+        description: "test",
+        ipfs: false
+      })
+    ).rejects.toThrow(/must include <script type="module" src="\/src\/main\.tsx"><\/script>/i);
+  });
+
+  test("rejects constrained layout when src/main.tsx is missing", async () => {
+    const dir = createTempDir("vibefi-cli-constrained-missing-main-tsx-");
+    fs.mkdirSync(path.join(dir, "src"));
+    fs.mkdirSync(path.join(dir, "assets"));
+    fs.mkdirSync(path.join(dir, "abis"));
+    writeText(path.join(dir, "src", "bootstrap.tsx"), "export const ok = 1;\n");
+    fs.writeFileSync(path.join(dir, "assets", "logo.webp"), "webp");
+    writeJson(path.join(dir, "abis", "Foo.json"), []);
+    writeText(path.join(dir, "index.html"), "<!doctype html><script type=\"module\" src=\"/src/main.tsx\"></script>\n");
+    writeJson(path.join(dir, "package.json"), { name: "constrained", private: true, version: "0.0.1", type: "module" });
+    writeJson(path.join(dir, "vibefi.json"), {
+      addresses: {
+        "31337": {
+          dappRegistry: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
+        }
+      }
+    });
+
+    await expect(
+      packageDapp({
+        path: dir,
+        name: "Constrained",
+        version: "0.0.1",
+        description: "test",
+        ipfs: false
+      })
+    ).rejects.toThrow(/requires src\/main\.tsx/i);
   });
 
   test("rejects disallowed file extensions in static-html layout", async () => {

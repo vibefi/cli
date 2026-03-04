@@ -118,6 +118,8 @@ This document describes CLI design and behavior (data flow, config, and contract
   - `--ipfs-api` overrides the IPFS API URL.
   - Supports two layouts:
     - constrained: `src/`, `assets/`, `abis/`, `vibefi.json`, `index.html`, `package.json`.
+      - requires `src/main.tsx`.
+      - requires `index.html` to include `<script type="module" src="/src/main.tsx"></script>`.
     - static-html: `vibefi.json`, `index.html`, plus only `.html`, `.js`, and `.json` files.
   - Constrained layout enforces dependency allowlist + exact versions.
   - Constrained layout rejects forbidden patterns (HTTP, fetch/XHR/WebSocket, dynamic HTTP imports).
