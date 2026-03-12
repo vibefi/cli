@@ -97,6 +97,8 @@ prints the folder CID for `dapp:propose`.
 
 Supported layouts:
 - constrained React/Vite layout: `src/`, `assets/`, `abis/`, `vibefi.json`, `index.html`, `package.json`
+  - `src/main.tsx` is required
+  - `index.html` must include `<script type="module" src="/src/main.tsx"></script>`
 - static-html layout: `vibefi.json`, `index.html`, and only `.html`, `.js`, `.json` files
 
 ```bash

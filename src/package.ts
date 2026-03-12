@@ -38,6 +38,7 @@ const STATIC_HTML_ALLOWED_EXTENSIONS = new Set([
   ".js",
   ".json"
 ]);
+const REQUIRED_CONSTRAINED_ENTRYPOINT = "/src/main.tsx";
 
 type ManifestFile = {
   path: string;
@@ -246,10 +247,28 @@ function validateConstrainedFiles(baseDir: string, constraints: Constraints) {
   }
 
   const indexHtml = fs.readFileSync(path.join(baseDir, "index.html"), "utf-8");
+  validateConstrainedEntrypoint(baseDir, indexHtml);
   for (const pattern of constraints.forbiddenPatterns) {
     if (indexHtml.includes(pattern)) {
       throw new Error(`Forbidden pattern in index.html: ${pattern}`);
     }
+  }
+}
+
+function validateConstrainedEntrypoint(baseDir: string, indexHtml: string) {
+  const entryFile = path.join(baseDir, "src", "main.tsx");
+  if (!fs.existsSync(entryFile) || !fs.statSync(entryFile).isFile()) {
+    throw new Error("Constrained layout requires src/main.tsx");
+  }
+
+  const moduleEntrypointPattern = new RegExp(
+    `<script\\b(?=[^>]*\\btype\\s*=\\s*["']module["'])(?=[^>]*\\bsrc\\s*=\\s*["']${REQUIRED_CONSTRAINED_ENTRYPOINT.replace("/", "\\/")}["'])[^>]*>\\s*<\\/script>`,
+    "i"
+  );
+  if (!moduleEntrypointPattern.test(indexHtml)) {
+    throw new Error(
+      `Constrained layout index.html must include <script type="module" src="${REQUIRED_CONSTRAINED_ENTRYPOINT}"></script>`
+    );
   }
 }
 
