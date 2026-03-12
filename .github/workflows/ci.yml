@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cli repo
+        uses: actions/checkout@v4
+        with:
+          path: cli-repo
+
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
+        with:
+          repository: vibefi/monorepo
+          path: monorepo
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Inject cli changes into monorepo workspace
+        run: |
+          rm -rf monorepo/cli
+          mkdir -p monorepo/cli
+          cp -R cli-repo/. monorepo/cli/
+          mkdir -p monorepo/e2e
+          if [ ! -f monorepo/e2e/package.json ]; then
+            printf '{\n  "name": "vibefi-e2e-placeholder",\n  "private": true\n}\n' > monorepo/e2e/package.json
+          fi
+
+      - name: Install dependencies
+        working-directory: monorepo
+        run: bun install
+
+      - name: Run unit tests
+        working-directory: monorepo/cli
+        run: bun run test:unit
